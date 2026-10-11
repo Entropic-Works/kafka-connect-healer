@@ -56,3 +56,40 @@ jobs:
         run: bash scripts/docker-smoke-test.sh kafka-connect-healer:ci
       - name: Render Kubernetes example
         run: kubectl kustomize examples/kubernetes
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      HEALER_TEST_IMAGE: kafka-connect-healer:integration
+      CONNECT_TEST_IMAGE: kafka-connect-healer-connect:integration
+      INTEGRATION_ARTIFACTS: ${{ github.workspace }}/tests/integration/artifacts
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: tests/integration/go.sum
+      - name: Verify integration dependencies
+        working-directory: tests/integration
+        run: go mod verify
+      - name: Vet integration tests
+        working-directory: tests/integration
+        run: go vet ./...
+      - name: Test real Kafka and Connect with Testcontainers
+        shell: bash
+        run: |
+          mkdir -p "$INTEGRATION_ARTIFACTS"
+          set -o pipefail
+          go -C tests/integration test -race -count=1 -timeout=20m -json ./... \
+            | tee "$INTEGRATION_ARTIFACTS/test-results.jsonl"
+      - name: Upload integration diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-diagnostics
+          path: tests/integration/artifacts/
+          if-no-files-found: ignore
+          retention-days: 7

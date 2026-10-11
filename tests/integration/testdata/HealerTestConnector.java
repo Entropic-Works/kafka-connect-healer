@@ -16,7 +16,7 @@ import org.apache.kafka.connect.source.SourceConnector;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.apache.kafka.connect.source.SourceTask;
 
-// Test fixture only: files under /data/<test.id> control deliberate failures.
+// Testcontainers fixture only: files under /data/<test.id> control deliberate failures.
 public class HealerTestConnector extends SourceConnector {
     private Map<String, String> properties;
 

@@ -1,2 +1,3 @@
 /bin/**
 /kafka-connect-healer
+/tests/integration/artifacts/

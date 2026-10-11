@@ -10,7 +10,7 @@ RUN mkdir -p /classes && javac -proc:none -cp '/kafka-libs/*' -d /classes /src/*
 FROM apache/kafka:4.2.2
 USER root
 COPY --from=compile /healer-test.jar /opt/kafka/plugins/healer-test/healer-test.jar
-RUN mkdir -p /opt/kafka/e2e-tls \
+RUN mkdir -p /opt/kafka/e2e-tls /data \
     && keytool -genkeypair -alias connect -keyalg RSA -keysize 2048 -validity 30 \
        -keystore /opt/kafka/e2e-tls/connect.p12 -storetype PKCS12 \
        -storepass test-only-password -keypass test-only-password \
@@ -18,7 +18,7 @@ RUN mkdir -p /opt/kafka/e2e-tls \
     && keytool -exportcert -rfc -alias connect \
        -keystore /opt/kafka/e2e-tls/connect.p12 -storepass test-only-password \
        -file /opt/kafka/e2e-tls/ca.crt \
-    && chown -R 1000:1000 /opt/kafka/e2e-tls
+    && chown -R 1000:1000 /opt/kafka/e2e-tls /data
 USER 1000:1000
 ENTRYPOINT ["/opt/kafka/bin/connect-distributed.sh"]
 CMD ["/config/worker.properties"]

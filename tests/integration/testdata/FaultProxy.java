@@ -57,6 +57,7 @@ public class FaultProxy {
                     }
                 } else {
                     HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:8083" + path))
+                        .timeout(java.time.Duration.ofSeconds(10))
                         .method(method, HttpRequest.BodyPublishers.ofByteArray(exchange.getRequestBody().readAllBytes()));
                     for (String header : new String[]{"Authorization", "Content-Type"}) {
                         String value = exchange.getRequestHeaders().getFirst(header);

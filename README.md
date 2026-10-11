@@ -322,7 +322,8 @@ go test -race -shuffle=on -count=3 -timeout=5m ./...
 ```
 
 CI also checks formatting, verifies dependency checksums, runs `govulncheck`, builds
-and smoke-tests the Docker image, and renders the Kubernetes example. The smoke test
+and smoke-tests the Docker image, renders the Kubernetes example, and runs the
+Testcontainers integration suite against real Kafka and Connect. The smoke test
 checks API reads and updates, cluster creation/deletion, authentication, password
 redaction, packaged attribution, and clean shutdown with a non-root, read-only
 container. It does not test remediation against a real Kafka Connect cluster.
@@ -337,10 +338,23 @@ bash scripts/docker-smoke-test.sh kafka-connect-healer:local
 kubectl kustomize examples/kubernetes
 ```
 
+Run the real Kafka/Connect integration tests with Docker running (no Kubernetes,
+kubectl, or existing Kafka deployment required):
+
+```sh
+go -C tests/integration test -race -count=1 -timeout=20m ./...
+```
+
+The Go test setup builds current local test images automatically, then runs the
+suite with race detection. Build and container logs are saved in
+`tests/integration/artifacts/`. The suite has a separate Go
+module, so `go test ./...` at the project root remains the fast unit-test suite
+and the production vendor directory contains no Testcontainers dependencies.
+
 ## Contributing and security
 
 A real Kafka/Connect integration stack and repeatable failure tests are available
-in [tests/e2e/](tests/e2e/README.md) for Docker Desktop Kubernetes. It uses Apache
+in [tests/integration/](tests/integration/README.md), using Testcontainers. It uses Apache
 Kafka/Connect 4.2.2 and test-only connectors; it does not establish compatibility
 with every Kafka version or production connector plugin.
 

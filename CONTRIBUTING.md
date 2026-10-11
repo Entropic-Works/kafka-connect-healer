@@ -24,6 +24,7 @@ go test -race -shuffle=on -count=3 -timeout=5m ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 docker build -t kafka-connect-healer:local .
 bash scripts/docker-smoke-test.sh kafka-connect-healer:local
+go -C tests/integration test -race -count=1 -timeout=20m ./...
 ```
 
 The container smoke test requires Docker, Bash, curl, jq, tar, and diff. Go tests
@@ -31,6 +32,15 @@ start local HTTP servers. Vendored dependencies are checked in; after intentiona
 changing dependencies, run `go mod tidy` and `go mod vendor`. Do not edit `vendor/`
 by hand. The vulnerability check downloads its tool and accesses the Go vulnerability
 database, even though application dependencies are vendored.
+
+The [integration suite](tests/integration/README.md) requires a working Docker
+daemon and downloads its own test-only dependencies. It runs in CI on pull
+requests and pushes, and gates releases. Its separate module is not vendored into
+the production application. Run `go mod tidy` inside `tests/integration/` when
+changing those dependencies; do not run `go mod vendor` there. Its Go test setup
+builds current application/fixture images automatically. Docker's CLI and
+BuildKit are required; Bash is not required for this suite. Use an isolated local
+Docker daemon, not a production Docker host.
 
 Contributions are submitted under the project's Apache-2.0 license. Contributors
 retain ownership of their contributions; submitting a pull request does not assign
