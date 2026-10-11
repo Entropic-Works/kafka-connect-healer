@@ -1,5 +1,5 @@
+- Set up the repo, branch rules, merge request, roles, dev, staging, and prod branches, have only integration tests run when something is being merged to dev, etc.
 - Should we have the ability to have multiple connect cluster files for organization?
-- Add e2e tests as part of CI
 - Add something configurable like "RESTART_STATES" where you list the restart states that count as needing a restart, and have a default
 - audit pass by value/reference
 - Review configuration update locking: `Manager.UpdateConfiguration` executes its callback under the manager's write lock. Calling `GetConfiguration`, `ConfigurationSnapshot`, or `UpdateConfiguration` on that same manager from the callback deadlocks. Keep callbacks limited to editing the supplied configuration until a simpler alternative is chosen.
