@@ -2,15 +2,15 @@
 
 ## Branches and contributions
 
-`dev` is the default branch and the target for contributor and dependency-update
-pull requests. `staging` holds the next release candidate. `production` holds
-promoted release code. The former default, `main`, is retained for history; do not
-use it for new development or releases.
+`main` is the default and release branch: visitors and fresh clones see promoted
+release code. `dev` is the target for contributor and dependency-update pull
+requests. `staging` holds the next release candidate. There is no separate
+`production` branch.
 
 Promote through pull requests in this order:
 
 ```text
-feature or fix → dev → staging → production → version tag
+feature or fix → dev → staging → main → version tag
 ```
 
 Use **Create a merge commit** for all PRs. Squash and rebase merging are disabled.
@@ -24,26 +24,27 @@ These branches represent source promotion; no application deployment is automate
 | Push to a branch | Yes | Yes | No |
 | PR into `dev` | Yes | Yes | Yes |
 | PR `dev` → `staging` | Yes | Yes | Yes |
-| PR `staging` → `production` | Yes | Yes | Yes |
+| PR `staging` → `main` | Yes | Yes | Yes |
 | Version tag release | Yes | Yes | Yes |
 
 The `branch-policy` check rejects PRs into `staging` from anything except this
-repository's `dev`, and into `production` from anything except its `staging`.
+repository's `dev`, and into `main` from anything except its `staging`.
 Forks contribute to `dev`. CI uses `pull_request` with read-only permissions;
 contributor code is not run with publishing credentials.
 
 Require the **CI required** check from GitHub Actions on all three promotion
 branches. It succeeds only when every applicable job passes, including integration
-tests on every PR into `dev`, `staging`, or `production`; a failed or canceled job
+tests on every PR into `dev`, `staging`, or `main`; a failed or canceled job
 cannot turn into a passing gate.
 Push and release runs use the distinct gate name `CI branch or release`, so a
 successful push check cannot stand in for PR integration validation.
-Do not require the conditional `integration` job separately on staging/production.
+The aggregate gate requires integration on all PRs; individual jobs need not be
+listed separately in the ruleset.
 
 ## Protections and access
 
 The promotion branches require a PR, resolved review conversations, and passing
-CI. Force pushes and deletion are blocked. Keep the legacy `main` protected too.
+CI. Direct pushes, force pushes, and deletion are blocked on all three branches.
 With one person maintaining two accounts, reviews are requested through CODEOWNERS
 but no approval count is required. When an independent maintainer joins, require
 one approval, dismiss stale approvals, and require code owner review.
@@ -52,8 +53,9 @@ Do not require branches to be up to date before merging: that can force reverse
 merges during promotions. CI tests the proposed merge result. Keep merge commits
 available and do not enforce linear history on promotion branches.
 
-Existing owner/admin bypass access is retained for emergency recovery. Routine
-changes still go through PRs. Only owners/admins may create `v*` release tags;
+The promotion rules have no bypass actors, including admins. Repository admins
+can still administer the rules, but normal branch updates must use passing PRs.
+Only owners/admins may create `v*` release tags;
 published tags must not be rewritten or deleted, including by owners.
 
 Roles and maintainer accounts are listed in [MAINTAINERS.md](../MAINTAINERS.md).
@@ -69,20 +71,23 @@ entire history is free of secrets. The Docker Hub secrets are `DOCKERHUB_USERNAM
 and `DOCKERHUB_TOKEN`; never put their values in this repository.
 
 Dependabot checks both Go modules, both Dockerfiles, and GitHub Actions weekly,
-targeting `dev`. GitHub security-update PRs target the default branch, so make sure
-that it remains `dev`. Review updates normally; there is no automatic dependency
-merge. Keep the Go version in both modules, Dockerfile, and README consistent.
+targeting `dev`. GitHub security-update PRs always target the default branch,
+`main`, regardless of `target-branch` in the version-update configuration. Retarget
+those PRs to `dev` before merging, then promote the fix through `staging` and
+`main`. A dependency PR directly into `main` fails the promotion-source check.
+Review updates normally; there is no automatic dependency merge. Keep the Go
+version in both modules, Dockerfile, and README consistent.
 Root Go dependency updates must also refresh `vendor/` and preserve notices.
 
 ## First-time setup or recovery
 
-1. Create `dev`, `staging`, and `production` from the same reviewed source commit.
-2. Set the default branch to `dev`. Retain `main`.
+1. Create `dev`, `staging`, and `main` from the same reviewed source commit.
+2. Set the default branch to `main` after the setup has been promoted there.
 3. Merge the repository setup PR into `dev`, then promote it into `staging` and
-   `production` through PRs using merge commits. Templates and Dependabot settings
+   `main` through PRs using merge commits. Templates and Dependabot settings
    become active after they reach the default branch; release safeguards apply
    only once this workflow reaches the commit being tagged.
-4. Protect `dev`, `staging`, and `production` with the rules above and the exact
+4. Protect `dev`, `staging`, and `main` with the rules above and the exact
    check name `CI required` (GitHub Actions app ID `15368`). Run a PR first if
    GitHub's UI has not yet discovered that check name.
 5. Keep release-tag creation restricted to owners/admins and retain existing tag
@@ -94,7 +99,7 @@ The desired settings and new rulesets are recorded in
 [repository-settings.json](../.github/repository-settings.json) and
 [rulesets/](../.github/rulesets/). GitHub does not apply these files automatically:
 apply them through the repository settings UI or REST API when recreating the setup.
-Existing rulesets must be inspected and preserved, including legacy branch and tag
+Existing rulesets must be inspected and preserved, including general branch and tag
 protections. GitHub settings are stored by GitHub, not enforced by these documents. Audit them
 after ownership, billing/plan, or default-branch changes. GitHub's references explain
 [rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets),

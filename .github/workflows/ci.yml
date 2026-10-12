@@ -4,7 +4,7 @@ on:
   push:
     branches: ['**']
   pull_request:
-    branches: [dev, staging, production]
+    branches: [dev, staging, main]
   workflow_call:
     inputs:
       run-integration:
@@ -82,7 +82,7 @@ jobs:
         run: kubectl kustomize examples/kubernetes
 
   integration:
-    # Every proposed merge into dev, staging, or production runs the full suite.
+    # Every proposed merge into dev, staging, or main runs the full suite.
     # Releases also test the tagged commit through workflow_call.
     if: >-
       github.event_name == 'pull_request' ||

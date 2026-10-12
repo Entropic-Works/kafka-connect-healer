@@ -4,8 +4,8 @@ set -euo pipefail
 # GitHub event values are passed through environment variables, never shell code.
 case "${BASE_BRANCH:?}" in
   staging) expected=dev ;;
-  production) expected=staging ;;
-  dev|main) exit 0 ;;
+  main) expected=staging ;;
+  dev) exit 0 ;;
   *) echo "Unsupported pull request target: $BASE_BRANCH" >&2; exit 1 ;;
 esac
 
