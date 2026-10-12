@@ -35,6 +35,8 @@ contributor code is not run with publishing credentials.
 Require the **CI required** check from GitHub Actions on all three promotion
 branches. It succeeds only when every applicable job passes, including integration
 tests on PRs into `dev`; a failed or canceled job cannot turn into a passing gate.
+Push and release runs use the distinct gate name `CI branch or release`, so a
+successful push check cannot stand in for PR integration validation.
 Do not require the conditional `integration` job separately on staging/production.
 
 ## Protections and access

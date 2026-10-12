@@ -124,7 +124,9 @@ jobs:
           retention-days: 7
 
   required:
-    name: CI required
+    # Only PR validation can satisfy the merge rule. A faster branch-push run
+    # must not publish the same required check name against the PR's head SHA.
+    name: ${{ github.event_name == 'pull_request' && 'CI required' || 'CI branch or release' }}
     if: always()
     needs: [branch-policy, verify, container, integration]
     runs-on: ubuntu-latest
