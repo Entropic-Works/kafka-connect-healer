@@ -8,7 +8,7 @@ if [[ ! "$release_tag" =~ $version_pattern ]]; then
   exit 1
 fi
 
-release_branch=production
+release_branch=main
 if [[ "$release_tag" == *-* ]]; then
   release_branch=staging
   IFS=. read -r -a identifiers <<< "${release_tag#*-}"

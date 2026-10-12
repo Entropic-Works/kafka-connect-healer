@@ -1,6 +1,6 @@
 # Kafka Connect Healer
 
-[![CI](https://github.com/Entropic-Works/kafka-connect-healer/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/Entropic-Works/kafka-connect-healer/actions/workflows/ci.yml)
+[![CI](https://github.com/Entropic-Works/kafka-connect-healer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Entropic-Works/kafka-connect-healer/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 An open-source project maintained by **Entropic Works, Inc.**, created by [Aaron Augustine](https://github.com/aaaugustine29).
@@ -18,7 +18,6 @@ Clone the repository first:
 ```sh
 git clone https://github.com/Entropic-Works/kafka-connect-healer.git
 cd kafka-connect-healer
-git switch dev
 ```
 
 Run with all default values:
@@ -359,7 +358,7 @@ and the production vendor directory contains no Testcontainers dependencies.
 
 A real Kafka/Connect integration stack and repeatable failure tests are available
 in [tests/integration/](tests/integration/README.md), using Testcontainers. It uses Apache
-Kafka/Connect 4.2.2 and test-only connectors; it does not establish compatibility
+Kafka 4.2.2, Kafka Connect 4.3.1, and test-only connectors; it does not establish compatibility
 with every Kafka version or production connector plugin.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request guidance,
@@ -367,7 +366,7 @@ and [SECURITY.md](SECURITY.md) for private vulnerability reporting and deploymen
 precautions.
 
 Contributions target `dev`; maintainers promote reviewed changes through `staging`
-and `production`. See [MAINTAINERS.md](MAINTAINERS.md), the
+and `main`, the default and release branch. See [MAINTAINERS.md](MAINTAINERS.md), the
 [code of conduct](CODE_OF_CONDUCT.md), and [repository administration](docs/REPOSITORY.md).
 
 ## Releases
@@ -379,7 +378,7 @@ version tag is published (`v0.1.0`, or a prerelease such as `v0.1.0-rc.1`); no f
 `latest`, major, or minor tags are updated. The runtime image includes `LICENSE`,
 `NOTICE`, and dependency licenses.
 
-Stable release tags must point to a commit promoted to `production`; prerelease
+Stable release tags must point to a commit promoted to `main`; prerelease
 tags must point to a commit promoted to `staging`. Both rerun the full CI suite,
 including integration tests, before publishing. Follow the
 [release runbook](docs/RELEASING.md) for promotion, tagging, publishing credentials,

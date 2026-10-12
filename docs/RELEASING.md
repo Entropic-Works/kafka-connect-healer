@@ -4,7 +4,7 @@ Release versions use `vMAJOR.MINOR.PATCH`; prereleases add a suffix such as
 `v0.1.0-rc.1`. Leading zeros and empty prerelease identifiers are rejected. Build
 metadata (`+...`) is not supported for Docker tags. Never reuse or move a published tag.
 
-Stable release commits must be reachable from `production`. Prerelease commits
+Stable release commits must be reachable from `main`. Prerelease commits
 must be reachable from `staging`. The release workflow checks this before running
 the full CI suite, then publishes Linux amd64 and arm64 images to Docker Hub as
 `entropicworks/kafka-connect-healer:<version>`, with an SBOM and build provenance.
@@ -21,10 +21,10 @@ use the same publishing credentials.
    Wait for full CI, including integration tests, and review the candidate and any
    validation performed in your staging environment.
    The branch itself does not deploy an environment.
-4. For a stable release, open and merge `staging` → `production` in the same way.
+4. For a stable release, open and merge `staging` → `main` in the same way.
    This promotion reruns the full CI suite, including integration tests.
    Fixes to candidates follow the same `dev` → `staging` path. Production hotfixes
-   also follow this path; do not bypass integration tests with a direct production PR.
+   also follow this path; do not bypass integration tests with a direct PR into main.
 
 ## Tag and publish
 
@@ -34,7 +34,7 @@ Use a clean checkout and fetch current branches and tags:
 
 ```sh
 git fetch origin --tags
-git switch --detach origin/production
+git switch --detach origin/main
 git tag -a v0.1.0 -m 'Kafka Connect Healer v0.1.0'
 git push origin v0.1.0
 ```

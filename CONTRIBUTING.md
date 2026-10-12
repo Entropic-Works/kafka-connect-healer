@@ -6,7 +6,7 @@ Discuss larger behavior or API changes in an issue before implementing them.
 
 Fork the repository, branch from `dev`, and open your pull request against `dev`.
 Use a focused branch name such as `fix/restart-timeout` or `docs/configuration`.
-Maintainers promote `dev` to `staging`, then `staging` to `production` using merge
+Maintainers promote `dev` to `staging`, then `staging` to `main` using merge
 commits; contributors do not target those branches. See the
 [repository workflow](docs/REPOSITORY.md) and [code of conduct](CODE_OF_CONDUCT.md).
 
@@ -42,7 +42,7 @@ database, even though application dependencies are vendored.
 
 The [integration suite](tests/integration/README.md) requires a working Docker
 daemon and downloads its own test-only dependencies. It runs in CI on pull
-requests into `dev`, `staging`, and `production`, and for release tags. Every
+requests into `dev`, `staging`, and `main`, and for release tags. Every
 promotion requires the full suite to pass. Branch pushes run the fast checks and
 container smoke test. Its separate module is not vendored into
 the production application. Run `go mod tidy` inside `tests/integration/` when

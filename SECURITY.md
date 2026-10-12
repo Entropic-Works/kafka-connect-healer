@@ -3,7 +3,7 @@
 ## Supported versions
 
 Until the first release, security fixes target `dev` and follow promotion through
-`staging` and `production`. After releases begin, only
+`staging` and `main`. After releases begin, only
 the latest non-prerelease version is supported; fixes may require upgrading rather
 than receiving a backport. No response-time or support SLA is promised.
 
