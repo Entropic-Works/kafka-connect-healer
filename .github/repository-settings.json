@@ -1,0 +1,13 @@
+{
+  "description": "Automatically restarts failed Kafka Connect connectors and tasks across multiple clusters, with configurable backoff and an HTTP configuration API.",
+  "default_branch": "dev",
+  "allow_merge_commit": true,
+  "allow_squash_merge": false,
+  "allow_rebase_merge": false,
+  "delete_branch_on_merge": false,
+  "security_and_analysis": {
+    "dependabot_security_updates": {"status": "enabled"},
+    "secret_scanning": {"status": "enabled"},
+    "secret_scanning_push_protection": {"status": "enabled"}
+  }
+}
