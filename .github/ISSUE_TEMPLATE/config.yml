@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/Entropic-Works/kafka-connect-healer/security/advisories/new
+    about: Do not disclose vulnerabilities or credentials in public issues.
+  - name: Usage and configuration documentation
+    url: https://github.com/Entropic-Works/kafka-connect-healer#readme
+    about: Read the configuration reference, examples, and troubleshooting guidance.

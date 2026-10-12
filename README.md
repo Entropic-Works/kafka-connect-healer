@@ -1,5 +1,8 @@
 # Kafka Connect Healer
 
+[![CI](https://github.com/Entropic-Works/kafka-connect-healer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Entropic-Works/kafka-connect-healer/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 An open-source project maintained by **Entropic Works, Inc.**, created by [Aaron Augustine](https://github.com/aaaugustine29).
 
 The source repository, issue tracker, and pull requests are hosted at [Entropic-Works/kafka-connect-healer](https://github.com/Entropic-Works/kafka-connect-healer).
@@ -355,12 +358,16 @@ and the production vendor directory contains no Testcontainers dependencies.
 
 A real Kafka/Connect integration stack and repeatable failure tests are available
 in [tests/integration/](tests/integration/README.md), using Testcontainers. It uses Apache
-Kafka/Connect 4.2.2 and test-only connectors; it does not establish compatibility
+Kafka 4.2.2, Kafka Connect 4.3.1, and test-only connectors; it does not establish compatibility
 with every Kafka version or production connector plugin.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request guidance,
 and [SECURITY.md](SECURITY.md) for private vulnerability reporting and deployment
 precautions.
+
+Contributions target `dev`; maintainers promote reviewed changes through `staging`
+and `main`, the default and release branch. See [MAINTAINERS.md](MAINTAINERS.md), the
+[code of conduct](CODE_OF_CONDUCT.md), and [repository administration](docs/REPOSITORY.md).
 
 ## Releases
 
@@ -371,27 +378,10 @@ version tag is published (`v0.1.0`, or a prerelease such as `v0.1.0-rc.1`); no f
 `latest`, major, or minor tags are updated. The runtime image includes `LICENSE`,
 `NOTICE`, and dependency licenses.
 
-Before the first release, maintainers must:
-
-1. Set GitHub Actions repository secret `DOCKERHUB_USERNAME` to the Docker account
-   used for publishing, and repository secret `DOCKERHUB_TOKEN` to an access token
-   with write access to the Docker Hub repository. Do not use the account password
-   or commit the token. Make the Docker Hub repository public for a public release.
-2. Enable GitHub private vulnerability reporting, monitor reports, and protect the
-   main branch and release tags so only authorized maintainers can publish.
-3. Check the full Git history for secrets and test against a real Kafka Connect
-   cluster, including failed connectors/tasks, authentication, backoff, and shutdown.
-
-To release, tag the reviewed commit after committing all release inputs:
-
-```sh
-git tag -a v0.1.0 -m 'Kafka Connect Healer v0.1.0'
-git push origin v0.1.0
-```
-
-After the workflow succeeds, create a GitHub release for the same tag with release
-notes, supported Kafka Connect versions that were actually tested, known limitations,
-and the Docker image reference/digest. The workflow publishes images only; it does not
-create a GitHub release or upload standalone binary archives. Do not move published
-version tags; publish a new patch version for fixes. Use an image digest for deployments
-that require immutable image references.
+Stable release tags must point to a commit promoted to `main`; prerelease
+tags must point to a commit promoted to `staging`. Both rerun the full CI suite,
+including integration tests, before publishing. Follow the
+[release runbook](docs/RELEASING.md) for promotion, tagging, publishing credentials,
+and release notes. See [repository administration](docs/REPOSITORY.md) for branch
+and tag protections. The workflow publishes images only; it does not create a
+GitHub release or upload standalone binary archives.
