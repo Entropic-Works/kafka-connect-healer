@@ -42,8 +42,9 @@ database, even though application dependencies are vendored.
 
 The [integration suite](tests/integration/README.md) requires a working Docker
 daemon and downloads its own test-only dependencies. It runs in CI on pull
-requests into `dev` and for release tags. Branch pushes and promotion PRs run the
-fast checks and container smoke test. Its separate module is not vendored into
+requests into `dev`, `staging`, and `production`, and for release tags. Every
+promotion requires the full suite to pass. Branch pushes run the fast checks and
+container smoke test. Its separate module is not vendored into
 the production application. Run `go mod tidy` inside `tests/integration/` when
 changing those dependencies; do not run `go mod vendor` there. Its Go test setup
 builds current application/fixture images automatically. Docker's CLI and

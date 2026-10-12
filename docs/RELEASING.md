@@ -18,9 +18,11 @@ use the same publishing credentials.
 2. Merge contributions into `dev` through passing PRs, including the real
    Kafka/Connect integration suite.
 3. Open and merge a PR from `dev` into `staging` using **Create a merge commit**.
-   Review the candidate and any validation performed in your staging environment.
+   Wait for full CI, including integration tests, and review the candidate and any
+   validation performed in your staging environment.
    The branch itself does not deploy an environment.
 4. For a stable release, open and merge `staging` → `production` in the same way.
+   This promotion reruns the full CI suite, including integration tests.
    Fixes to candidates follow the same `dev` → `staging` path. Production hotfixes
    also follow this path; do not bypass integration tests with a direct production PR.
 
