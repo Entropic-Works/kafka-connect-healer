@@ -359,7 +359,7 @@ and the production vendor directory contains no Testcontainers dependencies.
 
 A real Kafka/Connect integration stack and repeatable failure tests are available
 in [tests/integration/](tests/integration/README.md), using Testcontainers. It uses Apache
-Kafka/Connect 4.2.2 and test-only connectors; it does not establish compatibility
+Kafka 4.2.2, Kafka Connect 4.3.1, and test-only connectors; it does not establish compatibility
 with every Kafka version or production connector plugin.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request guidance,

@@ -1,10 +1,15 @@
 # Testcontainers integration tests
 
 Black-box tests run the real packaged Healer, an Apache Kafka 4.2.2 KRaft broker,
-and two independently configured Kafka Connect workers. A test-only source
+and two independently configured Kafka Connect 4.3.1 workers. A test-only source
 connector produces actual Kafka records and can deliberately fail its connector
 or individual tasks. An HTTPS fault gateway injects responses and records every
 request without recording credentials.
+
+The fixture build uses JDK 25 with `javac --release 21`, matching the Java 21
+runtime in the Kafka Connect image. Compiler updates must preserve that target
+unless the runtime is also upgraded; otherwise the connector and fault gateway
+cannot load.
 
 ## Running
 
