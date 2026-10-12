@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible problem with Kafka Connect Healer.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For vulnerabilities, use the private reporting link instead of this form.
+        Remove credentials, customer data, and private endpoints from all examples and logs.
+  - type: input
+    id: version
+    attributes:
+      label: Healer version
+      description: Release tag/image digest or source commit.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Kafka Connect version, connector plugin/version, OS/architecture, and how Healer runs.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include the smallest sanitized configuration that demonstrates the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      render: text

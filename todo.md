@@ -1,4 +1,3 @@
-- Set up the repo, branch rules, merge request, roles, dev, staging, and prod branches, have only integration tests run when something is being merged to dev, etc.
 - Should we have the ability to have multiple connect cluster files for organization?
 - Add something configurable like "RESTART_STATES" where you list the restart states that count as needing a restart, and have a default
 - audit pass by value/reference

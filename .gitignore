@@ -1,3 +1,20 @@
 /bin/**
 /kafka-connect-healer
 /tests/integration/artifacts/
+
+# Local runtime configuration and credentials; examples remain tracked.
+/config/
+.env
+.env.*
+!.env.example
+*-secret.yaml
+*-secret.yml
+!/tests/fixtures/docker/application-secret.yaml
+
+# Local build, test, and editor output.
+*.test
+*.out
+/coverage/
+.DS_Store
+.idea/
+.vscode/
