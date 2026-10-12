@@ -4,7 +4,13 @@ on:
   push:
     branches: ['**']
   pull_request:
+    branches: [dev, staging, production, main]
   workflow_call:
+    inputs:
+      run-integration:
+        description: Run the full real Kafka/Connect suite for a release
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -14,14 +20,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  branch-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check promotion path
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_BRANCH: ${{ github.base_ref }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPOSITORY: ${{ github.repository }}
+        run: bash scripts/check-promotion.sh
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -34,6 +56,8 @@ jobs:
           fi
       - name: Verify dependencies
         run: go mod verify
+      - name: Test repository policies
+        run: bash scripts/test-repository-policy.sh
       - name: Build
         run: go build ./...
       - name: Vet
@@ -47,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
       - name: Build container
@@ -58,10 +82,11 @@ jobs:
         run: kubectl kustomize examples/kubernetes
 
   integration:
+    # Test proposed merges into dev; promotions reuse that review. Releases rerun
+    # the complete suite against the tagged commit through workflow_call.
     if: >-
-      github.event_name == 'pull_request' ||
-      github.ref == 'refs/heads/main' ||
-      startsWith(github.ref, 'refs/tags/v')
+      (github.event_name == 'pull_request' && github.base_ref == 'dev') ||
+      inputs.run-integration == true
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -69,10 +94,10 @@ jobs:
       CONNECT_TEST_IMAGE: kafka-connect-healer-connect:integration
       INTEGRATION_ARTIFACTS: ${{ github.workspace }}/tests/integration/artifacts
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache-dependency-path: tests/integration/go.sum
@@ -91,9 +116,35 @@ jobs:
             | tee "$INTEGRATION_ARTIFACTS/test-results.jsonl"
       - name: Upload integration diagnostics
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: integration-diagnostics
           path: tests/integration/artifacts/
           if-no-files-found: ignore
           retention-days: 7
+
+  required:
+    # Only PR validation can satisfy the merge rule. A faster branch-push run
+    # must not publish the same required check name against the PR's head SHA.
+    name: ${{ github.event_name == 'pull_request' && 'CI required' || 'CI branch or release' }}
+    if: always()
+    needs: [branch-policy, verify, container, integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every applicable check to pass
+        env:
+          BRANCH_POLICY_RESULT: ${{ needs.branch-policy.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          CONTAINER_RESULT: ${{ needs.container.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+          INTEGRATION_REQUIRED: ${{ (github.event_name == 'pull_request' && github.base_ref == 'dev') || inputs.run-integration == true }}
+        run: |
+          [[ "$BRANCH_POLICY_RESULT" == success ]]
+          [[ "$VERIFY_RESULT" == success ]]
+          [[ "$CONTAINER_RESULT" == success ]]
+          if [[ "$INTEGRATION_REQUIRED" == true ]]; then
+            [[ "$INTEGRATION_RESULT" == success ]]
+          else
+            [[ "$INTEGRATION_RESULT" == skipped || "$INTEGRATION_RESULT" == success ]]
+          fi
