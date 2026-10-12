@@ -4,7 +4,7 @@ on:
   push:
     branches: ['**']
   pull_request:
-    branches: [dev, staging, production, main]
+    branches: [dev, staging, production]
   workflow_call:
     inputs:
       run-integration:
@@ -82,10 +82,10 @@ jobs:
         run: kubectl kustomize examples/kubernetes
 
   integration:
-    # Test proposed merges into dev; promotions reuse that review. Releases rerun
-    # the complete suite against the tagged commit through workflow_call.
+    # Every proposed merge into dev, staging, or production runs the full suite.
+    # Releases also test the tagged commit through workflow_call.
     if: >-
-      (github.event_name == 'pull_request' && github.base_ref == 'dev') ||
+      github.event_name == 'pull_request' ||
       inputs.run-integration == true
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -138,7 +138,7 @@ jobs:
           VERIFY_RESULT: ${{ needs.verify.result }}
           CONTAINER_RESULT: ${{ needs.container.result }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
-          INTEGRATION_REQUIRED: ${{ (github.event_name == 'pull_request' && github.base_ref == 'dev') || inputs.run-integration == true }}
+          INTEGRATION_REQUIRED: ${{ github.event_name == 'pull_request' || inputs.run-integration == true }}
         run: |
           [[ "$BRANCH_POLICY_RESULT" == success ]]
           [[ "$VERIFY_RESULT" == success ]]
