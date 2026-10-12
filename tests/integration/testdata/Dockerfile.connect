@@ -1,6 +1,6 @@
 # This image and its baked-in credentials/certificate are local test fixtures only.
 FROM apache/kafka:4.3.1 AS kafka
-FROM eclipse-temurin:21-jdk-alpine AS compile
+FROM eclipse-temurin:25-jdk-alpine AS compile
 COPY --from=kafka /opt/kafka/libs/ /kafka-libs/
 COPY HealerTestConnector.java /src/HealerTestConnector.java
 COPY FaultProxy.java /src/FaultProxy.java
