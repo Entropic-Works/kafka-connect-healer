@@ -1,5 +1,5 @@
 # This image and its baked-in credentials/certificate are local test fixtures only.
-FROM apache/kafka:4.2.2 AS kafka
+FROM apache/kafka:4.3.1 AS kafka
 FROM eclipse-temurin:21-jdk-alpine AS compile
 COPY --from=kafka /opt/kafka/libs/ /kafka-libs/
 COPY HealerTestConnector.java /src/HealerTestConnector.java
@@ -7,7 +7,7 @@ COPY FaultProxy.java /src/FaultProxy.java
 RUN mkdir -p /classes && javac -proc:none -cp '/kafka-libs/*' -d /classes /src/*.java \
     && jar --create --file /healer-test.jar -C /classes .
 
-FROM apache/kafka:4.2.2
+FROM apache/kafka:4.3.1
 USER root
 COPY --from=compile /healer-test.jar /opt/kafka/plugins/healer-test/healer-test.jar
 RUN mkdir -p /opt/kafka/e2e-tls /data \

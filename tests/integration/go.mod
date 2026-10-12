@@ -3,7 +3,7 @@ module github.com/Entropic-Works/kafka-connect-healer/tests/integration
 go 1.27.2
 
 require (
-	github.com/moby/moby/api v1.55.0
+	github.com/moby/moby/api v1.56.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 )
 
