@@ -17,6 +17,22 @@ import (
 
 func testAPI(t *testing.T, s *suite) {
 	s.resetAfter(t)
+	t.Run("separate health API", func(t *testing.T) {
+		healthURL := endpoint(t, s.healer, "8081/tcp", "http")
+		for _, path := range []string{"/livez", "/readyz"} {
+			code, body, _ := request(s.client, http.MethodGet, healthURL+path, nil, "", "", "")
+			if code != http.StatusOK || string(body) != "ok\n" {
+				t.Fatalf("health %s: %d %s", path, code, body)
+			}
+			s.apiRequest(t, http.MethodGet, path, "", http.StatusNotFound)
+		}
+		for _, path := range []string{"/", "/config", "/clusters"} {
+			code, body, _ := request(s.client, http.MethodGet, healthURL+path, nil, "", "", "")
+			if code != http.StatusNotFound {
+				t.Fatalf("health listener exposes %s: %d %s", path, code, body)
+			}
+		}
+	})
 	t.Run("authentication", func(t *testing.T) {
 		for _, operation := range []struct{ method, path string }{
 			{"GET", "/"}, {"GET", "/config"}, {"GET", "/clusters"}, {"GET", "/missing"},

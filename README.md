@@ -50,9 +50,18 @@ go run ./cmd/kafka-connect-healer \
 
 Both base files and each Secret overlay are optional, but any explicitly supplied file is required. No files are discovered automatically. Unreadable or invalid files cause startup to fail before the HTTP server or polling starts; an invalid file does not fall back to defaults. An application Secret overlay can be supplied without a base file and merges onto application defaults.
 
-The HTTP API listens on port 8080 on all interfaces. `GET /` lists the available routes, `GET /config` returns application settings without the API password, and `GET /clusters` returns cluster definitions without passwords. Optional API authentication protects all routes. An API startup or serving failure is logged as an error while polling continues. On SIGINT or SIGTERM, polling requests are canceled and the API has up to five seconds to finish active requests before its connections are closed. API logs include `component=api` and the listening address. Shutdown logs report the grace period, completion duration, and any failure or forced connection closure; the listener stopping is logged separately at DEBUG while active requests may still be finishing.
+The control HTTP API listens on port 8080 on all interfaces. `GET /` lists the available control routes, `GET /config` returns application settings without the API password, and `GET /clusters` returns cluster definitions without passwords. Optional API authentication protects every route on this server. A separate health HTTP server listens on port 8081 on all interfaces and serves only the unauthenticated probes below. A control API startup or serving failure triggers graceful application shutdown and exit code 1, allowing a supervisor to restart the process. A health server failure is logged as an error while polling continues. On SIGINT, SIGTERM, or control API failure, polling requests are canceled and both servers shut down concurrently with a shared five-second deadline for active requests before their connections are closed. Server logs include `component=api` or `component=health` and the listening address. Shutdown logs report the grace period, completion duration, and any failure or forced connection closure; listeners stopping are logged separately at DEBUG while active requests may still be finishing.
 
-API connections have a five-second header timeout, a five-second timeout for reading the entire request including its body, a ten-second response-write timeout, and a one-minute idle timeout. All polling, restart, and backoff logs include `connect_cluster` and `endpoint`; action logs also identify the connector and, for task restarts, `task_id`. Startup logs report the configured cluster count and source, and each poller logs its effective settings, changes, and shutdown at INFO. Restart logs report requests as accepted, since an HTTP success response does not prove that the connector or task has finished restarting. Repeated failure detection, backoff skips, and poll-cycle counts and durations are logged at DEBUG; request attempts are logged at INFO and failures at ERROR. Authentication credentials are omitted. Normal shutdown cancellation does not generate polling failure logs.
+Kubernetes HTTP probes use port 8081 and require no authentication:
+
+| Endpoint | Response |
+| --- | --- |
+| `GET /livez` | `200 OK` with `ok` while the health HTTP server responds. |
+| `GET /readyz` | `200 OK` with `ok` after configuration and the cluster manager initialize and the control API listener starts; `503 Service Unavailable` with `not ready` while the control API is unavailable or when shutdown begins. |
+
+Neither listener starts until configuration and the cluster manager initialize. If the control API fails to bind or stops serving, readiness becomes false and the application stops. If the health server fails, probes cannot connect. Readiness becomes false as soon as SIGINT, SIGTERM, or control API failure cancels the application context, before waiting for pollers to stop. Both probes work with an empty cluster configuration and remain healthy during Kafka Connect outages or connector failures: they describe the healer's lifecycle, not successful polling or remediation. Responses use `Cache-Control: no-store` and expose no configuration or credentials. Expose port 8080 for control access as needed and restrict port 8081 to probe traffic separately. The [Kubernetes example](examples/kubernetes/deployment.yaml) configures [liveness and readiness probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/).
+
+The control API has a five-second header timeout, a five-second timeout for reading the entire request including its body, and a ten-second response-write timeout. The health server has a one-second header timeout and two-second request-read and response-write timeouts, leaving room within the five-second shutdown deadline for incomplete probe connections to close. Both servers have a one-minute idle timeout. All polling, restart, and backoff logs include `connect_cluster` and `endpoint`; action logs also identify the connector and, for task restarts, `task_id`. Startup logs report the configured cluster count and source, and each poller logs its effective settings, changes, and shutdown at INFO. Restart logs report requests as accepted, since an HTTP success response does not prove that the connector or task has finished restarting. Repeated failure detection, backoff skips, and poll-cycle counts and durations are logged at DEBUG; request attempts are logged at INFO and failures at ERROR. Authentication credentials are omitted. Normal shutdown cancellation does not generate polling failure logs.
 
 Each action event includes `action=restart_connector` or `action=restart_task`.
 Each request has a start event and a single outcome event. Accepted outcomes are
@@ -148,7 +157,7 @@ docker run --rm --read-only -p 127.0.0.1:8080:8080 \
   --connect-clusters=/config/connect-clusters.yaml
 ```
 
-Mounted files must be readable by UID `65532`. Supply Secret overlay flags the same way when needed. Inside the container, `localhost` refers to the container itself; configure a reachable Kafka Connect hostname instead of relying on the default localhost endpoint. For Kubernetes, use the mounted file paths described below.
+Add `-p 127.0.0.1:8081:8081` to access the health endpoints from the host. Mounted files must be readable by UID `65532`. Supply Secret overlay flags the same way when needed. Inside the container, `localhost` refers to the container itself; configure a reachable Kafka Connect hostname instead of relying on the default localhost endpoint. For Kubernetes, use the mounted file paths described below.
 
 Build for another architecture with `docker buildx build --platform=linux/amd64 --load -t kafka-connect-healer:local .`; the Dockerfile cross-compiles for the selected target platform.
 
@@ -259,7 +268,7 @@ apiConfig:
     password: replace-me
 ```
 
-Enabled API authentication requires a nonblank username without a colon and a nonempty password; otherwise startup fails. Missing, malformed, or incorrect credentials return `401 Unauthorized` with a Basic Auth challenge before any route handler runs. All routes require the same credentials. Clients can use `curl --user healer-admin https://your-healer-host/config` to be prompted for the password. Credentials are never included in authentication error responses or logs.
+Enabled API authentication requires a nonblank username without a colon and a nonempty password; otherwise startup fails. Missing, malformed, or incorrect credentials return `401 Unauthorized` with a Basic Auth challenge before any control route handler runs. All routes on port 8080 require the same credentials; the health server on port 8081 remains unauthenticated. Clients can use `curl --user healer-admin https://your-healer-host/config` to be prompted for the password. Credentials are never included in authentication error responses or logs.
 
 API authentication is startup-only: PATCH cannot enable, disable, or change its credentials. Update the startup files and restart to apply those changes. Resubmitting identical API settings is a no-op and is allowed.
 
@@ -327,7 +336,7 @@ go test -race -shuffle=on -count=3 -timeout=5m ./...
 CI also checks formatting, verifies dependency checksums, runs `govulncheck`, builds
 and smoke-tests the Docker image, renders the Kubernetes example, and runs the
 Testcontainers integration suite against real Kafka and Connect. The smoke test
-checks API reads and updates, cluster creation/deletion, authentication, password
+checks API reads and updates, cluster creation/deletion, health probes, authentication, password
 redaction, packaged attribution, and clean shutdown with a non-root, read-only
 container. It does not test remediation against a real Kafka Connect cluster.
 Go is selected from `go.mod`.
