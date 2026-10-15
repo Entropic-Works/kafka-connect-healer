@@ -1,0 +1,44 @@
+name: Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Branch to promote into
+        type: choice
+        options: [staging, main]
+        required: true
+      version:
+        description: Planned stable release version (vMAJOR.MINOR.PATCH)
+        type: string
+        required: true
+      source-sha:
+        description: Full reviewed dev SHA for staging, or staging SHA for main
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: promotion
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'Entropic-Works/kafka-connect-healer' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Create or reuse promotion PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET_BRANCH: ${{ inputs.target }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          EXPECTED_SHA: ${{ inputs.source-sha }}
+        run: bash scripts/promote.sh

@@ -9,6 +9,8 @@ Use a focused branch name such as `fix/restart-timeout` or `docs/configuration`.
 Maintainers promote `dev` to `staging`, then `staging` to `main` using merge
 commits; contributors do not target those branches. See the
 [repository workflow](docs/REPOSITORY.md) and [code of conduct](CODE_OF_CONDUCT.md).
+Feature branches must be up to date with `dev` before merging; merge the latest
+`dev` into your branch and wait for fresh CI when another PR lands first.
 
 For bugs, include the version/image tag, relevant configuration with credentials
 removed, Kafka Connect version, reproduction steps, and sanitized logs. Do not post
@@ -43,8 +45,9 @@ database, even though application dependencies are vendored.
 The [integration suite](tests/integration/README.md) requires a working Docker
 daemon and downloads its own test-only dependencies. It runs in CI on pull
 requests into `dev`, `staging`, and `main`, and for release tags. Every
-promotion requires the full suite to pass. Branch pushes run the fast checks and
-container smoke test. Its separate module is not vendored into
+promotion requires the full suite to pass. Feature pushes run formatting, build,
+and unit tests; protected branch pushes also run the full fast checks and container
+smoke test. PRs run the complete validation. Its separate module is not vendored into
 the production application. Run `go mod tidy` inside `tests/integration/` when
 changing those dependencies; do not run `go mod vendor` there. Its Go test setup
 builds current application/fixture images automatically. Docker's CLI and
