@@ -30,7 +30,7 @@ type ClusterManager struct {
 	applicationContext   context.Context // Application lifetime, never an API request context.
 	configurationManager *config.Manager
 	clusterWorkers       map[string]*clusterWorker
-	closed               bool
+	closed               bool // Writes hold both mutexes; reads hold either one.
 }
 
 func NewClusterManager(applicationContext context.Context, configurationManager *config.Manager, clusters map[string]connectcluster.Configuration) (*ClusterManager, error) {
@@ -61,6 +61,14 @@ func (manager *ClusterManager) GetClusters() map[string]connectcluster.Configura
 		clusters[name] = worker.configuration
 	}
 	return clusters
+}
+
+// Ready reports whether the manager can accept work. Connect availability and
+// successful polling are not required, including when no clusters are configured.
+func (manager *ClusterManager) Ready() bool {
+	manager.clustersMutex.RLock()
+	defer manager.clustersMutex.RUnlock()
+	return !manager.closed && manager.applicationContext.Err() == nil
 }
 
 // PutCluster replaces one complete definition. Identical definitions are a no-op.
@@ -122,8 +130,8 @@ func (manager *ClusterManager) Close() {
 	if manager.closed {
 		return
 	}
-	manager.closed = true
 	manager.clustersMutex.Lock()
+	manager.closed = true
 	clusters := manager.clusterWorkers
 	manager.clusterWorkers = make(map[string]*clusterWorker)
 	manager.clustersMutex.Unlock()

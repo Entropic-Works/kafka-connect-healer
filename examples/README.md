@@ -28,18 +28,21 @@ belong in separate, untracked Secret overlay files, not these examples. See the
 ## Kubernetes
 
 Edit `kubernetes/connect-clusters.yaml` to use your Kafka Connect Service hostname.
-Set the Deployment image to a published Docker Hub tag (the example uses `v0.1.0`,
-which must exist before applying). For a private Docker Hub repository, configure
+Set the Deployment image to a published Docker Hub tag that serves `/livez` and
+`/readyz` on port 8081; replace the `v0.1.0` placeholder if that release lacks this
+health server. For a private Docker Hub repository, configure
 an `imagePullSecret` on the pod before deploying.
 
 ```sh
 kubectl kustomize examples/kubernetes
 kubectl apply -k examples/kubernetes
 kubectl rollout status deployment/kafka-connect-healer
-kubectl port-forward deployment/kafka-connect-healer 8080:8080
+kubectl port-forward deployment/kafka-connect-healer 8080:8080 8081:8081
 ```
 
-Then access `http://localhost:8080`. No Service or Ingress is created. This does not
+Then access the control API at `http://localhost:8080` and health probes at
+`http://localhost:8081/livez` and `http://localhost:8081/readyz`.
+No Service or Ingress is created. This does not
 isolate the pod's unauthenticated API from other pods: use network policy and enable
 API Basic Auth via a Secret overlay before sharing access. Basic Auth requires TLS
 termination at a trusted proxy/Ingress when requests traverse an untrusted network.
@@ -48,5 +51,9 @@ Kafka Connect Basic Auth independently requires `https: true`.
 Kustomize generates a hashed ConfigMap name. Applying changes to either configuration
 file replaces the pod; one replica and `Recreate` avoid overlapping pollers during
 updates. Runtime API changes are not persisted, and backoff history resets on restart.
-Resource settings are starting points, not capacity guarantees. No health probe is
-included: API reachability alone does not indicate Kafka Connect polling health.
+Resource settings are starting points, not capacity guarantees. The Deployment uses
+unauthenticated HTTP probes on port 8081: `/livez` checks HTTP liveness every ten
+seconds, and `/readyz` checks application readiness every five seconds. Readiness
+fails while the control API on port 8080 is unavailable or when shutdown begins.
+Empty cluster configurations and Kafka Connect outages
+do not fail these probes; they do not measure polling or remediation success.

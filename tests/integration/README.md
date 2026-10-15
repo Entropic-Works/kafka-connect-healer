@@ -76,7 +76,7 @@ own full stack. No scenario requires another scenario to have run first.
 
 | Group | Behaviors verified |
 | --- | --- |
-| API | All-route Basic authentication, challenges, denied writes, routing/method status codes, password redaction, no-store headers, JSON duration strings, atomic partial PATCH, duplicate/unknown/null/invalid UTF-8/trailing JSON rejection, validation, 64 KiB limits, media types, slow-body timeouts, escaped cluster names and Location |
+| API | Separate unauthenticated health listener, control/health route isolation, all-control-route Basic authentication, challenges, denied writes, routing/method status codes, password redaction, no-store headers, JSON duration strings, atomic partial PATCH, duplicate/unknown/null/invalid UTF-8/trailing JSON rejection, validation, 64 KiB limits, media types, slow-body timeouts, escaped cluster names and Location |
 | KafkaAndTLS | Real plugin loading, trusted HTTPS, outbound Basic authentication, running tasks, actual source records consumed from Kafka |
 | TaskPolicyBackoffAndRecovery | Disabled/enabled task policy, real task restarts, exponential/capped backoff, healthy reset, accepted-attempt and recovery logging |
 | ConnectorFailureIgnoresTaskPolicy | Failed connectors restart even when task policy is disabled; connector restart query parameters and recovery |
@@ -89,7 +89,7 @@ own full stack. No scenario requires another scenario to have run first.
 | InvalidSnapshots | Malformed/null/incomplete/500/redirect status responses cause no remediation and preserve attempt history; a valid empty snapshot prunes it |
 | TimeoutTLSAndClusterIsolation | Runtime request timeout, responsive API during slow outbound requests, hostname verification, identical connector names isolated across clusters, independent poller progress, deletion cancels an in-flight request |
 | BrokerOutage | API/config remain usable while the broker is stopped; a restarted broker resumes real record production |
-| StartupAndShutdown | Defaults, API-only/omitted cluster configuration, application and cluster Secret overlays, invalid/missing YAML startup failure, untrusted Connect certificate rejection, nonfatal API bind failure, SIGTERM during an outbound request, clean shutdown, runtime changes lost on restart |
+| StartupAndShutdown | Defaults, API-only/omitted cluster configuration, application and cluster Secret overlays, invalid/missing YAML startup failure, untrusted Connect certificate rejection, control API bind failure stops polling and exits 1, SIGTERM during an outbound request, clean shutdown, runtime changes lost on restart |
 
 Unit tests remain responsible for exact backoff arithmetic/overflow, exhaustive
 status decoding and configuration combinations, and data-race-sensitive internal

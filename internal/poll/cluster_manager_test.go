@@ -245,6 +245,32 @@ func TestClusterManagerCloseStopsWorkersAndRejectsChanges(t *testing.T) {
 	}
 }
 
+func TestClusterManagerNotReadyWhileCloseWaitsForWorkers(t *testing.T) {
+	manager := newLifecycleTestManager(t)
+	_, stopRequested, finishWorker := installStoppingWorker(t, manager)
+	if !manager.Ready() {
+		t.Fatal("running manager is not ready")
+	}
+	closed := make(chan struct{})
+	go func() {
+		manager.Close()
+		close(closed)
+	}()
+	waitForWorker(t, stopRequested)
+	ready := make(chan bool, 1)
+	go func() { ready <- manager.Ready() }()
+	select {
+	case got := <-ready:
+		if got {
+			t.Fatal("manager is ready while closing")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("readiness blocked waiting for worker shutdown")
+	}
+	finishWorker()
+	waitForWorker(t, closed)
+}
+
 func TestNewClusterManagerRejectsInvalidInitialDefinitionsAndCanceledContext(t *testing.T) {
 	configurationManager := config.NewManager(config.DefaultConfiguration())
 	for _, definitions := range []map[string]connectcluster.Configuration{
