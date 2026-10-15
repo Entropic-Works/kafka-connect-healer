@@ -104,7 +104,7 @@ func testStartup(t *testing.T, s *suite) {
 			})
 		}
 	})
-	t.Run("APIFailureDoesNotStopPolling", func(t *testing.T) {
+	t.Run("APIFailureStopsApplication", func(t *testing.T) {
 		// Sharing only this suite's Healer network namespace makes both HTTP ports
 		// busy, without occupying host ports or touching another deployment.
 		config := strings.Replace(applicationYAML, "restartFailedTasks: false", "restartFailedTasks: true", 1)
@@ -113,13 +113,15 @@ func testStartup(t *testing.T, s *suite) {
 			testcontainers.WithFiles(file("/config/application.yaml", config), file("/config/clusters.yaml", clustersYAML("8444")), file("/config/ca.crt", string(s.ca))),
 			testcontainers.WithEnv(map[string]string{"SSL_CERT_FILE": "/config/ca.crt"}),
 			testcontainers.WithCmd("--config=/config/application.yaml", "--connect-clusters=/config/clusters.yaml"),
-			testcontainers.WithWaitStrategy(wait.ForLog("API serving failed; polling will continue").WithStartupTimeout(20*time.Second)))
-		f := s.connector(t, s.primary, 1)
-		f.marker(t, "fail-task", true)
-		eventually(t, 10*time.Second, "polling despite bind failure", func() bool { return len(f.starts(t, "task")) >= 3 })
+			testcontainers.WithWaitStrategy(wait.ForExit().WithExitTimeout(15*time.Second)))
 		state, err := app.State(t.Context())
-		if err != nil || !state.Running {
-			t.Fatalf("API failure terminated application: %v %+v", err, state)
+		if err != nil || state.Running || state.ExitCode != 1 {
+			t.Fatalf("API failure should stop the application with exit code 1: %v %+v", err, state)
+		}
+		output := logs(t, app)
+		if !strings.Contains(output, "API serving failed; stopping application") ||
+			!strings.Contains(output, "polling stopped") || !strings.Contains(output, "Kafka Connect Healer stopped") {
+			t.Fatalf("missing API failure or shutdown logs: %s", output)
 		}
 	})
 	t.Run("UntrustedConnectCertificate", func(t *testing.T) {

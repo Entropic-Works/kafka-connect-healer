@@ -23,6 +23,10 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	configPath := flag.String("config", "", "path to optional application YAML configuration; omitted uses defaults")
 	secretPath := flag.String("secret-config", "", "path to an optional Secret YAML overlay")
 	clustersPath := flag.String("connect-clusters", "", "path to optional named Connect cluster configurations; omitted uses localhost:8083")
@@ -30,12 +34,12 @@ func main() {
 	flag.Parse()
 	if flag.NArg() != 0 {
 		slog.Error("unexpected positional arguments; use configuration file flags")
-		os.Exit(1)
+		return 1
 	}
 	startupConfiguration, err := config.LoadFiles(*configPath, *secretPath)
 	if err != nil {
 		slog.Error("configuration loading failed", "error", err)
-		os.Exit(1)
+		return 1
 	}
 	loggingLevel := new(slog.LevelVar)
 	loggingLevel.Set(startupConfiguration.LoggingConfig.Level)
@@ -44,7 +48,7 @@ func main() {
 	clusters, err := connectcluster.LoadFiles(*clustersPath, *clustersSecretPath)
 	if err != nil {
 		slog.Error("Connect cluster configuration loading failed", "error", err)
-		os.Exit(1)
+		return 1
 	}
 	clusterSource := *clustersPath
 	if clusterSource == "" {
@@ -68,7 +72,7 @@ func main() {
 	clusterManager, err := poll.NewClusterManager(ctx, configurationManager, clusters)
 	if err != nil {
 		slog.Error("Connect cluster manager startup failed", "error", err)
-		os.Exit(1)
+		return 1
 	}
 
 	apiComponents := api.Components{
@@ -82,6 +86,7 @@ func main() {
 		return apiReady.Load() && clusterManager.Ready()
 	})
 	healthLogger := slog.With("component", "health", "address", healthServer.Addr)
+	apiFailed := make(chan struct{})
 	var workers sync.WaitGroup
 
 	workers.Go(func() {
@@ -93,7 +98,8 @@ func main() {
 			apiReady.Store(false)
 		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			apiLogger.Error("API serving failed; polling will continue", "error", err)
+			apiLogger.Error("API serving failed; stopping application", "error", err)
+			close(apiFailed)
 		} else if errors.Is(err, http.ErrServerClosed) {
 			apiLogger.Debug("API listener stopped")
 		}
@@ -123,7 +129,13 @@ func main() {
 		}
 	})
 
-	<-ctx.Done()
+	exitCode := 0
+	select {
+	case <-ctx.Done():
+	case <-apiFailed:
+		exitCode = 1
+		stop()
+	}
 	slog.Info("Kafka Connect Healer stopping")
 	clusterManager.Close()
 
@@ -135,6 +147,7 @@ func main() {
 
 	workers.Wait()
 	slog.Info("Kafka Connect Healer stopped")
+	return exitCode
 }
 
 func shutdownServer(shutdownCtx context.Context, server *http.Server, logger *slog.Logger, name string, timeout time.Duration) {

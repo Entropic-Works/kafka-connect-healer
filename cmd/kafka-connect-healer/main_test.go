@@ -5,13 +5,16 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -84,21 +87,15 @@ func TestMainStartupAndShutdown(t *testing.T) {
 		name              string
 		arguments         []string
 		want              string
-		apiUnavailable    bool
 		healthUnavailable bool
 	}{
 		{name: "defaults", want: "polling started"},
 		{name: "explicit empty clusters", arguments: []string{"--connect-clusters=" + emptyClusters}, want: "no Connect clusters configured; polling disabled"},
-		{name: "control API bind failure", arguments: []string{"--connect-clusters=" + emptyClusters}, want: "API serving failed; polling will continue", apiUnavailable: true},
 		{name: "health API bind failure", arguments: []string{"--connect-clusters=" + emptyClusters}, want: "health serving failed; polling will continue", healthUnavailable: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if test.apiUnavailable || test.healthUnavailable {
-				address := ":8080"
-				if test.healthUnavailable {
-					address = ":8081"
-				}
-				listener, err := net.Listen("tcp", address)
+			if test.healthUnavailable {
+				listener, err := net.Listen("tcp", ":8081")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -143,19 +140,15 @@ func TestMainStartupAndShutdown(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal("application did not start")
 			}
-			client := &http.Client{Timeout: time.Second}
+			client := &http.Client{Transport: &http.Transport{}, Timeout: time.Second}
 			t.Cleanup(client.CloseIdleConnections)
-			wantReady := http.StatusOK
-			if test.apiUnavailable {
-				wantReady = http.StatusServiceUnavailable
-			}
 			if !test.healthUnavailable {
-				waitForHTTPStatus(t, ctx, client, "http://127.0.0.1:8081/readyz", wantReady)
+				waitForHTTPStatus(t, ctx, client, "http://127.0.0.1:8081/readyz", http.StatusOK)
 				waitForHTTPStatus(t, ctx, client, "http://127.0.0.1:8081/livez", http.StatusOK)
 			}
-			if !test.apiUnavailable {
-				waitForHTTPStatus(t, ctx, client, "http://127.0.0.1:8080/config", http.StatusOK)
-			}
+			waitForHTTPStatus(t, ctx, client, "http://127.0.0.1:8080/config", http.StatusOK)
+			// Release probe connections before asserting graceful server shutdown.
+			client.CloseIdleConnections()
 			if err := command.Process.Signal(syscall.SIGTERM); err != nil {
 				t.Fatal(err)
 			}
@@ -180,6 +173,32 @@ func TestMainStartupAndShutdown(t *testing.T) {
 	}
 }
 
+func TestMainStopsOnAPIBindFailure(t *testing.T) {
+	listener, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	output, err := mainProcess(ctx).CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("application did not stop after API bind failure: %v\n%s", ctx.Err(), output)
+	}
+	if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 1 {
+		t.Fatalf("API bind failure = %v, want exit code 1; logs: %s", err, output)
+	}
+	for _, message := range []string{
+		"API serving failed; stopping application", "polling stopped",
+		"API graceful shutdown completed", "health graceful shutdown completed",
+		"Kafka Connect Healer stopped",
+	} {
+		if !strings.Contains(string(output), message) {
+			t.Fatalf("missing %q: %s", message, output)
+		}
+	}
+}
+
 func waitForHTTPStatus(t *testing.T, ctx context.Context, client *http.Client, address string, status int) {
 	t.Helper()
 	ticker := time.NewTicker(10 * time.Millisecond)
@@ -191,7 +210,11 @@ func waitForHTTPStatus(t *testing.T, ctx context.Context, client *http.Client, a
 		}
 		response, err := client.Do(request)
 		if err == nil {
+			_, readError := io.Copy(io.Discard, response.Body)
 			response.Body.Close()
+			if readError != nil {
+				t.Fatalf("read %s response: %v", address, readError)
+			}
 			if response.StatusCode == status {
 				return
 			}
@@ -201,6 +224,33 @@ func waitForHTTPStatus(t *testing.T, ctx context.Context, client *http.Client, a
 		case <-ctx.Done():
 			t.Fatalf("%s did not return %d: %v", address, status, ctx.Err())
 		}
+	}
+}
+
+func TestWaitForHTTPStatusReusesConnection(t *testing.T) {
+	var requests, connections atomic.Int32
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		io.WriteString(w, "ok\n")
+	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			connections.Add(1)
+		}
+	}
+	server.Start()
+	t.Cleanup(server.Close)
+	client := &http.Client{Transport: &http.Transport{}, Timeout: time.Second}
+	t.Cleanup(client.CloseIdleConnections)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	waitForHTTPStatus(t, ctx, client, server.URL+"/readyz", http.StatusOK)
+	waitForHTTPStatus(t, ctx, client, server.URL+"/livez", http.StatusOK)
+	if got := connections.Load(); got != 1 {
+		t.Fatalf("probe requests opened %d connections, want one reused connection", got)
 	}
 }
 

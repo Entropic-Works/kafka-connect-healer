@@ -13,12 +13,13 @@ func NewServer(ready func() bool) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", livenessHandler)
 	mux.HandleFunc("GET /readyz", readinessHandler(ready))
+	// Keep probe request deadlines below the application's shutdown grace period.
 	return &http.Server{
 		Addr:              ":8081",
 		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       5 * time.Second,
-		WriteTimeout:      10 * time.Second,
+		ReadHeaderTimeout: time.Second,
+		ReadTimeout:       2 * time.Second,
+		WriteTimeout:      2 * time.Second,
 		IdleTimeout:       time.Minute,
 		ErrorLog:          slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
 	}
