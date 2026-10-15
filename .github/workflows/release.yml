@@ -28,6 +28,9 @@ jobs:
 
   checks:
     needs: validate
+    permissions:
+      contents: read
+      pull-requests: read
     uses: ./.github/workflows/ci.yml
     with:
       run-integration: true
@@ -37,6 +40,8 @@ jobs:
     if: github.repository == 'Entropic-Works/kafka-connect-healer'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -56,6 +61,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build and publish
+        id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
@@ -65,3 +71,81 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           sbom: true
           provenance: mode=max
+
+  verify-images:
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Pull and smoke test the published platform digest
+        env:
+          IMAGE_INDEX: entropicworks/kafka-connect-healer@${{ needs.publish.outputs.digest }}
+          RELEASE_ARCH: ${{ matrix.architecture }}
+        run: |
+          docker manifest inspect "$IMAGE_INDEX" > manifest.json
+          image=$(bash scripts/select-release-image.sh manifest.json "$IMAGE_INDEX" "$RELEASE_ARCH")
+          docker pull --platform "linux/$RELEASE_ARCH" "$image"
+          [[ "$(docker image inspect --format '{{.Architecture}}' "$image")" == "$RELEASE_ARCH" ]]
+          bash scripts/docker-smoke-test.sh "$image"
+          jq -n --arg architecture "$RELEASE_ARCH" --arg index "$IMAGE_INDEX" --arg image "$image" \
+            '{architecture: $architecture, index: $index, image: $image}' > "release-image-$RELEASE_ARCH.json"
+      - name: Record verified digest
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-image-${{ matrix.architecture }}
+          path: release-image-${{ matrix.architecture }}.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 90
+
+  announce:
+    needs: [publish, verify-images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Create release with verified image digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          IMAGE_INDEX: entropicworks/kafka-connect-healer@${{ needs.publish.outputs.digest }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GH_REPO" --pattern 'release-image-*' --dir release-images
+          jq -se --arg index "$IMAGE_INDEX" '
+            ([.[].architecture] | sort) == ["amd64", "arm64"] and
+            all(.[]; .index == $index)
+          ' release-images/*/*.json >/dev/null
+          {
+            printf 'Source commit: `%s`\n\n' "$GITHUB_SHA"
+            printf 'Verified Linux amd64 and arm64 images:\n\n'
+            printf -- '- Multi-platform index: `%s`\n' "$IMAGE_INDEX"
+            jq -r '"- Linux " + .architecture + ": `" + .image + "`"' release-images/*/*.json
+            printf '\nFull CI and real Kafka/Connect integration passed on this tag. Both published platform images passed container smoke tests on native runners.\n\n'
+            printf '[Validation run](https://github.com/%s/actions/runs/%s)\n' "$GH_REPO" "$GITHUB_RUN_ID"
+          } > release-notes.md
+          options=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            options+=(--prerelease --latest=false)
+          fi
+          # Preserve existing release notes when a successful run is retried.
+          if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GH_REPO" --verify-tag \
+              --title "$RELEASE_TAG" --generate-notes --notes-file release-notes.md "${options[@]}"
+          fi

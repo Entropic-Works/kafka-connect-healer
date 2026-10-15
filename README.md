@@ -392,5 +392,6 @@ tags must point to a commit promoted to `staging`. Both rerun the full CI suite,
 including integration tests, before publishing. Follow the
 [release runbook](docs/RELEASING.md) for promotion, tagging, publishing credentials,
 and release notes. See [repository administration](docs/REPOSITORY.md) for branch
-and tag protections. The workflow publishes images only; it does not create a
-GitHub release or upload standalone binary archives.
+and tag protections. After full CI, the workflow publishes images and smoke tests
+both platform digests on native runners before creating a GitHub release with
+verified digests. It does not upload standalone binary archives.
