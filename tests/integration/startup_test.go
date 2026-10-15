@@ -105,7 +105,7 @@ func testStartup(t *testing.T, s *suite) {
 		}
 	})
 	t.Run("APIFailureDoesNotStopPolling", func(t *testing.T) {
-		// Sharing ONLY this suite's Healer network namespace makes port 8080
+		// Sharing only this suite's Healer network namespace makes both HTTP ports
 		// busy, without occupying host ports or touching another deployment.
 		config := strings.Replace(applicationYAML, "restartFailedTasks: false", "restartFailedTasks: true", 1)
 		app := runContainer(t, "api-bind-failure", image("HEALER_TEST_IMAGE", defaultHealerImage),

@@ -218,11 +218,11 @@ func clustersYAML(port string) string {
 func (s *suite) startHealer(t *testing.T, name, config, clusters string, extra ...testcontainers.ContainerCustomizer) *testcontainers.DockerContainer {
 	t.Helper()
 	options := []testcontainers.ContainerCustomizer{
-		network.WithNetwork([]string{name}, s.network), testcontainers.WithExposedPorts("8080/tcp"),
+		network.WithNetwork([]string{name}, s.network), testcontainers.WithExposedPorts("8080/tcp", "8081/tcp"),
 		testcontainers.WithEnv(map[string]string{"SSL_CERT_FILE": "/config/ca.crt"}),
 		testcontainers.WithFiles(file("/config/application.yaml", config), file("/config/clusters.yaml", clusters), file("/config/ca.crt", string(s.ca))),
 		testcontainers.WithCmd("--config=/config/application.yaml", "--connect-clusters=/config/clusters.yaml"),
-		testcontainers.WithWaitStrategy(wait.ForLog("starting API server").WithStartupTimeout(30 * time.Second)),
+		testcontainers.WithWaitStrategy(wait.ForHTTP("/readyz").WithPort("8081/tcp").WithStartupTimeout(30 * time.Second)),
 	}
 	options = append(options, extra...)
 	return runContainer(t, name, image("HEALER_TEST_IMAGE", defaultHealerImage), options...)

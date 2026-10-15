@@ -5,16 +5,19 @@ import (
 	"errors"
 	"flag"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/Entropic-Works/kafka-connect-healer/internal/api"
 	"github.com/Entropic-Works/kafka-connect-healer/internal/config"
 	"github.com/Entropic-Works/kafka-connect-healer/internal/connectcluster"
+	"github.com/Entropic-Works/kafka-connect-healer/internal/health"
 	"github.com/Entropic-Works/kafka-connect-healer/internal/logging"
 	"github.com/Entropic-Works/kafka-connect-healer/internal/poll"
 )
@@ -74,14 +77,34 @@ func main() {
 	}
 	server := api.NewServer(apiComponents)
 	apiLogger := slog.With("component", "api", "address", server.Addr)
+	var apiReady atomic.Bool
+	healthServer := health.NewServer(func() bool {
+		return apiReady.Load() && clusterManager.Ready()
+	})
+	healthLogger := slog.With("component", "health", "address", healthServer.Addr)
 	var workers sync.WaitGroup
 
 	workers.Go(func() {
 		apiLogger.Info("starting API server", "authentication_enabled", configuration.APIConfig.AuthConfig.Enabled)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		listener, err := net.Listen("tcp", server.Addr)
+		if err == nil {
+			apiReady.Store(true)
+			err = server.Serve(listener)
+			apiReady.Store(false)
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			apiLogger.Error("API serving failed; polling will continue", "error", err)
 		} else if errors.Is(err, http.ErrServerClosed) {
 			apiLogger.Debug("API listener stopped")
+		}
+	})
+
+	workers.Go(func() {
+		healthLogger.Info("starting health server")
+		if err := healthServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			healthLogger.Error("health serving failed; polling will continue", "error", err)
+		} else if errors.Is(err, http.ErrServerClosed) {
+			healthLogger.Debug("health listener stopped")
 		}
 	})
 
@@ -105,21 +128,26 @@ func main() {
 	clusterManager.Close()
 
 	const shutdownTimeout = 5 * time.Second
-	shutdownStarted := time.Now()
-	apiLogger.Info("API graceful shutdown started", "timeout", shutdownTimeout)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		apiLogger.Warn("API graceful shutdown failed; closing connections", "duration", time.Since(shutdownStarted), "error", err)
-		if err := server.Close(); err != nil {
-			apiLogger.Error("API forced shutdown failed", "duration", time.Since(shutdownStarted), "error", err)
-		} else {
-			apiLogger.Info("API connections forcibly closed", "duration", time.Since(shutdownStarted))
-		}
-	} else {
-		apiLogger.Info("API graceful shutdown completed", "duration", time.Since(shutdownStarted))
-	}
+	workers.Go(func() { shutdownServer(shutdownCtx, server, apiLogger, "API", shutdownTimeout) })
+	workers.Go(func() { shutdownServer(shutdownCtx, healthServer, healthLogger, "health", shutdownTimeout) })
 
 	workers.Wait()
 	slog.Info("Kafka Connect Healer stopped")
+}
+
+func shutdownServer(shutdownCtx context.Context, server *http.Server, logger *slog.Logger, name string, timeout time.Duration) {
+	shutdownStarted := time.Now()
+	logger.Info(name+" graceful shutdown started", "timeout", timeout)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Warn(name+" graceful shutdown failed; closing connections", "duration", time.Since(shutdownStarted), "error", err)
+		if err := server.Close(); err != nil {
+			logger.Error(name+" forced shutdown failed", "duration", time.Since(shutdownStarted), "error", err)
+		} else {
+			logger.Info(name+" connections forcibly closed", "duration", time.Since(shutdownStarted))
+		}
+	} else {
+		logger.Info(name+" graceful shutdown completed", "duration", time.Since(shutdownStarted))
+	}
 }

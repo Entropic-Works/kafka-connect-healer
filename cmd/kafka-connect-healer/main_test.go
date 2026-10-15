@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,14 +81,29 @@ func TestMainStartupAndShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
-		name      string
-		arguments []string
-		want      string
+		name              string
+		arguments         []string
+		want              string
+		apiUnavailable    bool
+		healthUnavailable bool
 	}{
 		{name: "defaults", want: "polling started"},
 		{name: "explicit empty clusters", arguments: []string{"--connect-clusters=" + emptyClusters}, want: "no Connect clusters configured; polling disabled"},
+		{name: "control API bind failure", arguments: []string{"--connect-clusters=" + emptyClusters}, want: "API serving failed; polling will continue", apiUnavailable: true},
+		{name: "health API bind failure", arguments: []string{"--connect-clusters=" + emptyClusters}, want: "health serving failed; polling will continue", healthUnavailable: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			if test.apiUnavailable || test.healthUnavailable {
+				address := ":8080"
+				if test.healthUnavailable {
+					address = ":8081"
+				}
+				listener, err := net.Listen("tcp", address)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer listener.Close()
+			}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			command := mainProcess(ctx, test.arguments...)
@@ -126,6 +143,19 @@ func TestMainStartupAndShutdown(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal("application did not start")
 			}
+			client := &http.Client{Timeout: time.Second}
+			t.Cleanup(client.CloseIdleConnections)
+			wantReady := http.StatusOK
+			if test.apiUnavailable {
+				wantReady = http.StatusServiceUnavailable
+			}
+			if !test.healthUnavailable {
+				waitForHTTPStatus(t, ctx, client, "http://127.0.0.1:8081/readyz", wantReady)
+				waitForHTTPStatus(t, ctx, client, "http://127.0.0.1:8081/livez", http.StatusOK)
+			}
+			if !test.apiUnavailable {
+				waitForHTTPStatus(t, ctx, client, "http://127.0.0.1:8080/config", http.StatusOK)
+			}
 			if err := command.Process.Signal(syscall.SIGTERM); err != nil {
 				t.Fatal(err)
 			}
@@ -141,7 +171,36 @@ func TestMainStartupAndShutdown(t *testing.T) {
 			if test.name == "explicit empty clusters" && strings.Contains(logs.String(), "polling started") {
 				t.Fatalf("empty cluster file started a poller: %s", logs.String())
 			}
+			for _, message := range []string{"API graceful shutdown completed", "health graceful shutdown completed"} {
+				if !strings.Contains(logs.String(), message) {
+					t.Fatalf("missing %q: %s", message, logs.String())
+				}
+			}
 		})
+	}
+}
+
+func waitForHTTPStatus(t *testing.T, ctx context.Context, client *http.Client, address string, status int) {
+	t.Helper()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Do(request)
+		if err == nil {
+			response.Body.Close()
+			if response.StatusCode == status {
+				return
+			}
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatalf("%s did not return %d: %v", address, status, ctx.Err())
+		}
 	}
 }
 

@@ -76,7 +76,7 @@ own full stack. No scenario requires another scenario to have run first.
 
 | Group | Behaviors verified |
 | --- | --- |
-| API | All-route Basic authentication, challenges, denied writes, routing/method status codes, password redaction, no-store headers, JSON duration strings, atomic partial PATCH, duplicate/unknown/null/invalid UTF-8/trailing JSON rejection, validation, 64 KiB limits, media types, slow-body timeouts, escaped cluster names and Location |
+| API | Separate unauthenticated health listener, control/health route isolation, all-control-route Basic authentication, challenges, denied writes, routing/method status codes, password redaction, no-store headers, JSON duration strings, atomic partial PATCH, duplicate/unknown/null/invalid UTF-8/trailing JSON rejection, validation, 64 KiB limits, media types, slow-body timeouts, escaped cluster names and Location |
 | KafkaAndTLS | Real plugin loading, trusted HTTPS, outbound Basic authentication, running tasks, actual source records consumed from Kafka |
 | TaskPolicyBackoffAndRecovery | Disabled/enabled task policy, real task restarts, exponential/capped backoff, healthy reset, accepted-attempt and recovery logging |
 | ConnectorFailureIgnoresTaskPolicy | Failed connectors restart even when task policy is disabled; connector restart query parameters and recovery |

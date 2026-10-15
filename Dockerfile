@@ -34,5 +34,5 @@ COPY NOTICE /licenses/kafka-connect-healer-NOTICE
 COPY vendor/go.yaml.in/yaml/v3/LICENSE vendor/go.yaml.in/yaml/v3/NOTICE /licenses/yaml/
 
 USER 65532:65532
-EXPOSE 8080
+EXPOSE 8080 8081
 ENTRYPOINT ["/kafka-connect-healer"]
