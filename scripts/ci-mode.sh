@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Metadata-only edits must neither replace the required PR gate nor cancel tests.
+# Metadata-only edits reuse verified full CI without canceling or rerunning tests.
 case "${GITHUB_EVENT_NAME:?}" in
   pull_request)
     if jq -e '

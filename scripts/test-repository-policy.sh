@@ -9,6 +9,7 @@ ci_mode="$repo_root/scripts/ci-mode.sh"
 promote="$repo_root/scripts/promote.sh"
 state="$repo_root/scripts/check-promotion-state.sh"
 select_image="$repo_root/scripts/select-release-image.sh"
+previous_ci="$repo_root/scripts/check-previous-ci.sh"
 
 expect_pass() {
   if ! "$@" >/dev/null 2>&1; then
@@ -93,6 +94,9 @@ cat > "$fixture/bin/gh" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
 case "$*" in
+  'api repos/owner/repo/actions/workflows/ci.yml/runs?'*) cat "${MOCK_CI_RUNS:?}" ;;
+  'api repos/owner/repo/actions/runs/200/jobs?'*) cat "${MOCK_METADATA_JOBS:?}" ;;
+  'api repos/owner/repo/actions/runs/'*'/jobs?'*) cat "${MOCK_PREVIOUS_JOBS:?}" ;;
   'api repos/owner/repo/git/ref/heads/'*)
     if [[ -n "${MOCK_REF_CALLS_FILE:-}" ]]; then
       count=$(cat "$MOCK_REF_CALLS_FILE")
@@ -161,6 +165,40 @@ jq --arg sha "$other_sha" '.pull_request.head.sha = $sha' "$event" > "$fixture/c
 expect_fail env GITHUB_EVENT_PATH="$fixture/changed.json" bash "$state"
 jq '.pull_request.base.ref = "dev"' "$fixture/changed.json" > "$event"
 expect_pass env MOCK_FROZEN=true bash "$state"
+
+# A notes-only run must prove prior full CI for this PR and both current commits.
+export GITHUB_RUN_ID=201 MOCK_CI_RUNS="$fixture/ci-runs.json"
+export MOCK_PREVIOUS_JOBS="$fixture/full-jobs.json" MOCK_METADATA_JOBS="$fixture/metadata-jobs.json"
+jq -n --arg head "$source_sha" --arg base "$other_sha" \
+  '{number:18,pull_request:{head:{sha:$head},base:{ref:"staging",sha:$base}}}' > "$event"
+jq -n '{jobs:(["branch-policy","verify","container","integration","CI required"]
+  | map({name:.,conclusion:"success"}))}' > "$MOCK_PREVIOUS_JOBS"
+jq -n '{jobs:(["branch-policy","verify","container","integration"]
+  | map({name:.,conclusion:"skipped"}))}' > "$MOCK_METADATA_JOBS"
+jq -n --arg head "$source_sha" --arg base "$other_sha" '{workflow_runs:[
+  {id:200,event:"pull_request",head_sha:$head,status:"completed",conclusion:"success",
+   pull_requests:[{number:18,head:{sha:$head},base:{ref:"staging",sha:$base}}]},
+  {id:100,event:"pull_request",head_sha:$head,status:"completed",conclusion:"success",
+   pull_requests:[{number:18,head:{sha:$head},base:{ref:"staging",sha:$base}}]}
+]}' > "$MOCK_CI_RUNS"
+cp "$MOCK_CI_RUNS" "$fixture/good-ci-runs.json"
+expect_pass bash "$previous_ci"
+jq '.workflow_runs[1].conclusion = "failure"' "$fixture/good-ci-runs.json" > "$MOCK_CI_RUNS"
+expect_fail bash "$previous_ci"
+for mutation in '.workflow_runs[1].head_sha = "other"' \
+  '.workflow_runs[1].pull_requests[0].base.sha = "other"' \
+  '.workflow_runs[1].pull_requests[0].number = 19' \
+  '.workflow_runs[1].event = "push"' \
+  '.workflow_runs[1].id = 201'; do
+  jq "$mutation" "$fixture/good-ci-runs.json" > "$MOCK_CI_RUNS"
+  expect_fail bash "$previous_ci"
+done
+jq '.workflow_runs += [(.workflow_runs[1] | .id = 300 | .conclusion = "failure")]' \
+  "$fixture/good-ci-runs.json" > "$MOCK_CI_RUNS"
+expect_fail bash "$previous_ci"
+cp "$fixture/good-ci-runs.json" "$MOCK_CI_RUNS"
+jq '.jobs |= map(select(.name != "integration"))' "$MOCK_PREVIOUS_JOBS" > "$fixture/missing-integration.json"
+expect_fail env MOCK_PREVIOUS_JOBS="$fixture/missing-integration.json" bash "$previous_ci"
 
 # Select runnable platform manifests, excluding provenance/SBOM attestations.
 digest_a=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

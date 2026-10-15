@@ -33,7 +33,9 @@ repository's `dev`, and into `main` from anything except its `staging`.
 Forks contribute to `dev`. CI uses `pull_request` with read-only permissions;
 contributor code is not run with publishing credentials.
 Changing a PR's target branch reruns full validation. Ordinary title/body edits
-do not rerun tests or replace the required check; changing the recorded promotion
+do not rerun tests; their required gate verifies prior full CI on the same PR,
+source commit, and base commit. A newer failed full run cannot reuse older success.
+Changing the recorded promotion
 source commit does rerun full validation. Metadata edits cannot cancel an active
 code-validation run.
 
