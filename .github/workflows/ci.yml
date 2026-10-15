@@ -5,6 +5,7 @@ on:
     branches: ['**']
   pull_request:
     branches: [dev, staging, main]
+    types: [opened, synchronize, reopened, edited]
   workflow_call:
     inputs:
       run-integration:
@@ -14,13 +15,68 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Body/title edits cannot cancel an in-flight validation of the code.
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event.action == 'edited' && !github.event.changes.base && 'metadata' || 'validation' }}
+  cancel-in-progress: ${{ github.event.action != 'edited' || github.event.changes.base != null }}
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - id: mode
+        run: |
+          mode=$(bash scripts/ci-mode.sh)
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+  feature:
+    needs: plan
+    if: needs.plan.outputs.mode == 'feature'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Check formatting, build, and unit tests
+        run: |
+          [[ -z "$(gofmt -l .)" ]]
+          go build ./...
+          go test -count=1 -timeout=5m ./...
+
+  metadata:
+    needs: plan
+    if: needs.plan.outputs.mode == 'ignore'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verify prior full validation for these exact commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash scripts/check-previous-ci.sh
+
   branch-policy:
+    needs: plan
+    if: needs.plan.outputs.mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -35,8 +91,16 @@ jobs:
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPOSITORY: ${{ github.repository }}
         run: bash scripts/check-promotion.sh
+      - name: Check candidate snapshot and staging freeze
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash scripts/check-promotion-state.sh
 
   verify:
+    needs: plan
+    if: needs.plan.outputs.mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -68,6 +132,8 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
   container:
+    needs: plan
+    if: needs.plan.outputs.mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -82,11 +148,12 @@ jobs:
         run: kubectl kustomize examples/kubernetes
 
   integration:
+    needs: plan
     # Every proposed merge into dev, staging, or main runs the full suite.
     # Releases also test the tagged commit through workflow_call.
     if: >-
-      github.event_name == 'pull_request' ||
-      inputs.run-integration == true
+      needs.plan.outputs.mode == 'full' &&
+      (github.event_name == 'pull_request' || inputs.run-integration == true)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -126,20 +193,35 @@ jobs:
   required:
     # Only PR validation can satisfy the merge rule. A faster branch-push run
     # must not publish the same required check name against the PR's head SHA.
+    # Metadata edits must prove earlier full validation before reporting success.
     name: ${{ github.event_name == 'pull_request' && 'CI required' || 'CI branch or release' }}
     if: always()
-    needs: [branch-policy, verify, container, integration]
+    needs: [plan, feature, metadata, branch-policy, verify, container, integration]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require every applicable check to pass
         env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          CI_MODE: ${{ needs.plan.outputs.mode }}
+          FEATURE_RESULT: ${{ needs.feature.result }}
+          METADATA_RESULT: ${{ needs.metadata.result }}
           BRANCH_POLICY_RESULT: ${{ needs.branch-policy.result }}
           VERIFY_RESULT: ${{ needs.verify.result }}
           CONTAINER_RESULT: ${{ needs.container.result }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
           INTEGRATION_REQUIRED: ${{ github.event_name == 'pull_request' || inputs.run-integration == true }}
         run: |
+          [[ "$PLAN_RESULT" == success ]]
+          if [[ "$CI_MODE" == ignore ]]; then
+            [[ "$METADATA_RESULT" == success ]]
+            exit 0
+          fi
+          if [[ "$CI_MODE" == feature ]]; then
+            [[ "$FEATURE_RESULT" == success ]]
+            exit 0
+          fi
+          [[ "$CI_MODE" == full ]]
           [[ "$BRANCH_POLICY_RESULT" == success ]]
           [[ "$VERIFY_RESULT" == success ]]
           [[ "$CONTAINER_RESULT" == success ]]
