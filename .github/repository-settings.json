@@ -5,6 +5,7 @@
   "allow_squash_merge": false,
   "allow_rebase_merge": false,
   "delete_branch_on_merge": false,
+  "allow_update_branch": true,
   "security_and_analysis": {
     "dependabot_security_updates": {
       "status": "enabled"
