@@ -133,7 +133,10 @@ those PRs to `dev` before merging, then promote the fix through `staging` and
 `main`. A dependency PR directly into `main` fails the promotion-source check.
 Review updates normally; there is no automatic dependency merge. Keep the Go
 version in both modules, Dockerfile, and README consistent.
-Root Go dependency updates must also refresh `vendor/` and preserve notices.
+Go dependency updates must include tidy `go.mod` and `go.sum` files in the affected
+module. CI checks module integrity and tidiness. The Docker build discovers and
+packages notices from imported dependencies automatically; review those notices
+when adding or replacing dependencies.
 
 ## First-time setup or recovery
 

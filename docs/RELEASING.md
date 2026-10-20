@@ -94,7 +94,8 @@ run, and verified digests. Review and supplement those generated notes with:
 - Known limitations and the Docker image reference and digest.
 
 Standalone binary archives are not generated. Users can build from the tagged source
-using the offline build instructions in the README.
+using the source-build instructions in the README. Fresh builds download Go
+dependencies; subsequent builds can reuse the module cache.
 
 The release workflow verifies published images with the documented fixtures,
 including API access, health probes, authentication, and graceful shutdown.

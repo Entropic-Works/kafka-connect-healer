@@ -1,6 +1,7 @@
 /bin/**
 /kafka-connect-healer
 /tests/integration/artifacts/
+/vendor/
 
 # Local runtime configuration and credentials; examples remain tracked.
 /config/
