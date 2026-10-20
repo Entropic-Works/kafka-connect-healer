@@ -15,6 +15,7 @@ import (
 	"github.com/Entropic-Works/kafka-connect-healer/internal/poll/backoff"
 	"github.com/Entropic-Works/kafka-connect-healer/internal/poll/requests"
 	"github.com/Entropic-Works/kafka-connect-healer/internal/poll/status"
+	"github.com/Entropic-Works/kafka-connect-healer/internal/telemetry"
 )
 
 // ConnectClusterPoller owns the client and backoff state for one cluster.
@@ -37,7 +38,16 @@ func (poller *ConnectClusterPoller) Poll(ctx context.Context, configurationManag
 		BackoffConfig:   configuration.PollingBehavior.Backoff,
 		BackoffStatuses: map[string]backoff.Status{},
 	}
-	logger := slog.With("connect_cluster", poller.name, "endpoint", poller.connectClient.BaseURL)
+	logger := slog.Default()
+	var metrics *telemetry.PollMetrics
+	if configuration.TelemetryConfig.Enabled {
+		var err error
+		metrics, err = telemetry.NewPollMetrics(poller.name)
+		if err != nil {
+			logger.Error("polling metrics initialization failed; polling will continue", "connect_cluster", poller.name, "error", err)
+		}
+	}
+	logger = logger.With("connect_cluster", poller.name, "endpoint", poller.connectClient.BaseURL)
 	logPollingSettings(logger, "polling started", configuration)
 	defer logger.Info("polling stopped")
 
@@ -74,12 +84,15 @@ func (poller *ConnectClusterPoller) Poll(ctx context.Context, configurationManag
 			connectorStatuses, err := status.FindConnectorStatuses(ctx, poller.connectClient)
 			if err != nil {
 				if ctx.Err() != nil {
+					metrics.RecordCycle(ctx, cycleStarted, "canceled")
 					return
 				}
+				metrics.RecordCycle(ctx, cycleStarted, "error")
 				logger.Error("poll cycle failed while retrieving connector statuses", "error", err, "duration", time.Since(cycleStarted))
 				continue
 			}
 
+			cycleOutcome := "success"
 			logger.Debug("connector statuses retrieved", "count", len(connectorStatuses))
 			failedTargets = logRecoveries(failedTargets, connectorStatuses, logger)
 			pruneBackoffsForMissingStatuses(&poller.backoffFilter, connectorStatuses)
@@ -92,14 +105,23 @@ func (poller *ConnectClusterPoller) Poll(ctx context.Context, configurationManag
 			restartAttempts := 0
 			for _, remediationAction := range connectorRemediationActions {
 				if ctx.Err() != nil {
+					metrics.RecordCycle(ctx, cycleStarted, "canceled")
 					return
 				}
 				actionStarted := time.Now()
 				result, err := actions.TakeAction(ctx, remediationAction, poller.connectClient, logger)
 				requestDuration := time.Since(actionStarted)
+				requestOutcome := "accepted"
+				if err != nil {
+					requestOutcome, cycleOutcome = "error", "error"
+					if ctx.Err() != nil {
+						requestOutcome, cycleOutcome = "canceled", "canceled"
+					}
+				}
 				outcomeLogger := remediationAction.Logger(logger).With("request_attempted", result.RequestAttempted,
 					"status_code", result.StatusCode, "duration", requestDuration)
 				if result.RequestAttempted {
+					metrics.RecordRestart(ctx, remediationAction, requestOutcome)
 					restartAttempts++
 					var backoffStatus backoff.Status
 					switch remediationAction.Kind {
@@ -125,7 +147,8 @@ func (poller *ConnectClusterPoller) Poll(ctx context.Context, configurationManag
 					outcomeLogger.Info("connector restart request accepted")
 				}
 			}
-			logger.Debug("poll cycle completed", "connector_count", len(connectorStatuses), "restart_attempts", restartAttempts, "duration", time.Since(cycleStarted))
+			metrics.RecordCycle(ctx, cycleStarted, cycleOutcome)
+			logger.Debug("poll cycle completed", "outcome", cycleOutcome, "connector_count", len(connectorStatuses), "restart_attempts", restartAttempts, "duration", time.Since(cycleStarted))
 		}
 	}
 }
