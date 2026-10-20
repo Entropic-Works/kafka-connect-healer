@@ -29,7 +29,7 @@ belong in separate, untracked Secret overlay files, not these examples. See the
 
 Edit `kubernetes/connect-clusters.yaml` to use your Kafka Connect Service hostname.
 Set the Deployment image to a published Docker Hub tag that serves `/livez` and
-`/readyz` on port 8081; replace the `v0.1.0` placeholder if that release lacks this
+`/readyz` on port 8081; replace the `0.1.0` placeholder if that release lacks this
 health server. For a private Docker Hub repository, configure
 an `imagePullSecret` on the pod before deploying.
 

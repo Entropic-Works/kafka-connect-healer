@@ -67,7 +67,7 @@ linear history on promotion branches.
 
 The promotion rules have no bypass actors, including admins. Repository admins
 can still administer the rules, but normal branch updates must use passing PRs.
-Only owners/admins may create `v*` release tags;
+Only owners/admins may create numeric release tags or legacy `v*` tags;
 published tags must not be rewritten or deleted, including by owners.
 The separate `tag-ruleset` blocks all tag updates and deletions with no bypass
 actors. Tag creation permissions remain in `release-tag-creation`. Administrators
@@ -76,7 +76,7 @@ can still edit rulesets; these rules prevent bypass during ordinary Git operatio
 ## Promotion and candidate snapshots
 
 Run **Actions → Promote → Run workflow** from `main`. Choose `staging` or `main`,
-enter the planned stable version (for example `v0.2.0`), and enter the full reviewed
+enter the planned stable version (for example `0.2.0`), and enter the full reviewed
 source commit: `dev` for staging, or `staging` for main. The workflow opens or
 reuses a PR with the included commits, source SHA, and release validation checklist.
 It never merges the PR, creates a tag, or advances the next stage automatically.
@@ -88,7 +88,7 @@ The helper is also available locally with the maintainer's normal GitHub CLI log
 
 ```sh
 GH_REPO=Entropic-Works/kafka-connect-healer \
-TARGET_BRANCH=staging RELEASE_VERSION=v0.2.0 EXPECTED_SHA=FULL_REVIEWED_DEV_SHA \
+TARGET_BRANCH=staging RELEASE_VERSION=0.2.0 EXPECTED_SHA=FULL_REVIEWED_DEV_SHA \
 bash scripts/promote.sh
 ```
 

@@ -147,7 +147,7 @@ See [Tests](#tests) for pre-deployment checks.
 ## Docker
 
 Release images are published to `entropicworks/kafka-connect-healer` on Docker Hub
-for Linux amd64 and arm64. Use an explicit published version tag, such as `v0.1.0`;
+for Linux amd64 and arm64. Use an explicit published version tag, such as `0.1.0`;
 the first tag will only become available after the release workflow completes.
 
 Build the image:
@@ -485,7 +485,7 @@ and `main`, the default and release branch. See [MAINTAINERS.md](MAINTAINERS.md)
 The release workflow publishes to Docker Hub's `entropicworks/kafka-connect-healer`
 repository only after the full CI checks pass for the tagged commit. It builds Linux
 amd64 and arm64 images and attaches an SBOM and build provenance. Only the full
-version tag is published (`v0.1.0`, or a prerelease such as `v0.1.0-rc.1`); no floating
+version tag is published (`0.1.0`, or a prerelease such as `0.1.0-rc.1`); no floating
 `latest`, major, or minor tags are updated. The runtime image includes `LICENSE`,
 `NOTICE`, and dependency licenses.
 

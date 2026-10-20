@@ -25,7 +25,7 @@ spec:
       containers:
         - name: healer
           # Replace with a release tag that serves /livez and /readyz on port 8081.
-          image: entropicworks/kafka-connect-healer:v0.1.0
+          image: entropicworks/kafka-connect-healer:0.1.0
           args:
             - --config=/config/application.yaml
             - --connect-clusters=/config/connect-clusters.yaml

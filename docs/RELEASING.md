@@ -1,8 +1,16 @@
 # Releasing Kafka Connect Healer
 
-Release versions use `vMAJOR.MINOR.PATCH`; prereleases add a suffix such as
-`v0.1.0-rc.1`. Leading zeros and empty prerelease identifiers are rejected. Build
+Release versions use `MAJOR.MINOR.PATCH`; prereleases add a suffix such as
+`0.1.0-rc.1`. Leading zeros and empty prerelease identifiers are rejected. Build
 metadata (`+...`) is not supported for Docker tags. Never reuse or move a published tag.
+
+Versions no longer use a leading `v`. Historical `v0.0.0`, `v0.0.1`, and `v0.0.2`
+tags remain immutable compatibility aliases; their prefix-free Git tags identify
+the same commits. GitHub releases use the prefix-free names. The manual
+**Migrate legacy image tags** workflow copies the three existing Docker image
+indexes to prefix-free tags, verifies their recorded digests, and refuses to
+overwrite a different image. It preserves both architectures and attestations
+without rebuilding historical releases. Run it from `main`; it is safe to rerun.
 
 Stable release commits must be reachable from `main`. Prerelease commits
 must be reachable from `staging`. The release workflow checks this before running
@@ -43,7 +51,7 @@ documents local use of `scripts/promote.sh` with a maintainer's GitHub CLI login
 
 Use a short freeze on new feature merges into `dev` while a release candidate is
 being validated. A candidate is identified by its full staging commit and,
-optionally, an immutable prerelease tag such as `v0.2.0-rc.1`. Keep staging fixed
+optionally, an immutable prerelease tag such as `0.2.0-rc.1`. Keep staging fixed
 while its PR into main is open. Do not reuse a prerelease tag for a replacement.
 
 If the candidate needs a fix:
@@ -71,8 +79,8 @@ Use a clean checkout and fetch current branches and tags:
 ```sh
 git fetch origin --tags
 git switch --detach origin/main
-git tag -a v0.1.0 -m 'Kafka Connect Healer v0.1.0'
-git push origin v0.1.0
+git tag -a 0.1.0 -m 'Kafka Connect Healer 0.1.0'
+git push origin 0.1.0
 ```
 
 For a candidate, detach at `origin/staging` instead and use a prerelease tag.
