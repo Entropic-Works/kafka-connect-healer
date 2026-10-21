@@ -26,6 +26,9 @@ const collectorYAML = `receivers:
     protocols:
       http:
         endpoint: 0.0.0.0:4318
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
 exporters:
   file/metrics:
     path: /telemetry/metrics.json
@@ -36,6 +39,7 @@ exporters:
     flush_interval: 100ms
     append: true
 service:
+  extensions: [health_check]
   pipelines:
     metrics:
       receivers: [otlp]
@@ -51,9 +55,10 @@ func (s *suite) startCollector(t *testing.T) *testcontainers.DockerContainer {
 	metricsFile.FileMode, logsFile.FileMode = 0o666, 0o666
 	collector := runContainer(t, "collector", collectorImage,
 		network.WithNetwork([]string{"collector"}, s.network),
+		testcontainers.WithExposedPorts("13133/tcp"),
 		testcontainers.WithFiles(file("/config/collector.yaml", collectorYAML), metricsFile, logsFile),
 		testcontainers.WithCmd("--config=/config/collector.yaml"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Everything is ready").WithStartupTimeout(30*time.Second)),
+		testcontainers.WithWaitStrategy(wait.ForHTTP("/").WithPort("13133/tcp").WithStartupTimeout(30*time.Second)),
 	)
 	t.Cleanup(func() {
 		for _, signal := range []string{"metrics", "logs"} {
