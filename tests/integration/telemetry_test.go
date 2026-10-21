@@ -30,9 +30,11 @@ exporters:
   file/metrics:
     path: /telemetry/metrics.json
     flush_interval: 100ms
+    append: true
   file/logs:
     path: /telemetry/logs.json
     flush_interval: 100ms
+    append: true
 service:
   pipelines:
     metrics:
