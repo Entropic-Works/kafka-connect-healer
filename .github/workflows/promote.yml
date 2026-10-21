@@ -9,7 +9,7 @@ on:
         options: [staging, main]
         required: true
       version:
-        description: Planned stable release version (vMAJOR.MINOR.PATCH)
+        description: Planned stable release version (MAJOR.MINOR.PATCH)
         type: string
         required: true
       source-sha:

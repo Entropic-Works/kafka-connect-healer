@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-release_tag=${1:?Usage: check-release-tag.sh vMAJOR.MINOR.PATCH[-prerelease] [--check-branch]}
-version_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+release_tag=${1:?Usage: check-release-tag.sh MAJOR.MINOR.PATCH[-prerelease] [--check-branch]}
+version_pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 if [[ ! "$release_tag" =~ $version_pattern ]]; then
-  echo 'Expected vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-prerelease, without leading zeros.' >&2
+  echo 'Expected MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-prerelease, without leading zeros.' >&2
   exit 1
 fi
 

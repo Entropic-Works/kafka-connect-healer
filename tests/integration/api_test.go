@@ -109,6 +109,7 @@ func testAPI(t *testing.T, s *suite) {
 			{"startup_auth", `{"apiConfig":{"authConfig":{"enabled":false}}}`},
 			{"startup_username", `{"apiConfig":{"authConfig":{"username":"changed"}}}`},
 			{"startup_password", `{"apiConfig":{"authConfig":{"password":"must-not-leak"}}}`},
+			{"startup_telemetry", `{"telemetryConfig":{"enabled":false},"pollingBehavior":{"interval":"30s"}}`},
 			{"secret_in_error", `{"apiConfig":{"authConfig":{"password":"must-not-leak"},"unknown":1}}`},
 			{"trailing_json", "{} {}"}, {"bad_utf8", "{\"loggingConfig\":{\"level\":\"\xff\"}}"},
 			{"partial_invalid", `{"pollingBehavior":{"restartFailedTasks":true},"communicationConfig":{"requestTimeout":"0s"}}`},

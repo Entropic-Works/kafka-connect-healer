@@ -33,6 +33,8 @@ pollingBehavior:
     baseDelay: 30s
 loggingConfig:
   level: DEBUG
+telemetryConfig:
+  enabled: true
 `)
 	overlay := writeConfigFile(t, `
 apiConfig:
@@ -57,6 +59,7 @@ pollingBehavior:
 	want.PollingBehavior.Backoff.Enabled = false
 	want.PollingBehavior.Backoff.Exponential = false
 	want.LoggingConfig.Level = slog.LevelDebug
+	want.TelemetryConfig.Enabled = true
 	if got != want {
 		t.Fatal("merged configuration did not preserve defaults, base values, and explicit overlay values")
 	}
