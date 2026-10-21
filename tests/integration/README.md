@@ -1,7 +1,8 @@
 # Testcontainers integration tests
 
 Black-box tests run the real packaged Healer, an Apache Kafka 4.2.2 KRaft broker,
-and two independently configured Kafka Connect 4.3.1 workers. A test-only source
+and two independently configured Kafka Connect 4.3.1 workers, alongside an official
+OpenTelemetry Collector 0.163.1 pinned by image index digest. A test-only source
 connector produces actual Kafka records and can deliberately fail its connector
 or individual tasks. An HTTPS fault gateway injects responses and records every
 request without recording credentials.
@@ -48,6 +49,10 @@ they are always rebuilt, not treated as prebuilt inputs. Tests never push images
 `INTEGRATION_ARTIFACTS` chooses the directory for build and container logs. The
 default is `artifacts/` inside this module, ignored by Git. CI uses the same Go
 entrypoint and preserves JSON test results and logs as an artifact for seven days.
+Collector output is also saved as newline-delimited OTLP JSON for metrics and logs.
+The primary Healer runs with telemetry enabled; its test collector receives
+OTLP/HTTP on the isolated Docker network and writes only to its own container filesystem.
+This needs no external observability platform or credentials.
 
 Always use `-count=1` (or another explicit count) for a real integration run. Go's
 test-result cache does not reliably track source files in the parent module or
@@ -89,6 +94,7 @@ own full stack. No scenario requires another scenario to have run first.
 | InvalidSnapshots | Malformed/null/incomplete/500/redirect status responses cause no remediation and preserve attempt history; a valid empty snapshot prunes it |
 | TimeoutTLSAndClusterIsolation | Runtime request timeout, responsive API during slow outbound requests, hostname verification, identical connector names isolated across clusters, independent poller progress, deletion cancels an in-flight request |
 | BrokerOutage | API/config remain usable while the broker is stopped; a restarted broker resumes real record production |
+| Telemetry | Received OTLP metrics and logs from the packaged application; service identity; cycle counts and duration per cluster; accepted/error restart requests per cluster, connector, and task; same connector name across clusters; API/health/polling logs; collector outage leaves polling, control API, and health probes working; export resumes after collector restart; disabled telemetry stays silent; shutdown flushes logs before a long batch interval expires |
 | StartupAndShutdown | Defaults, API-only/omitted cluster configuration, application and cluster Secret overlays, invalid/missing YAML startup failure, untrusted Connect certificate rejection, control API bind failure stops polling and exits 1, SIGTERM during an outbound request, clean shutdown, runtime changes lost on restart |
 
 Unit tests remain responsible for exact backoff arithmetic/overflow, exhaustive
@@ -111,7 +117,3 @@ HTTP 409 is injected deterministically rather than relying on rebalance timing.
 The broker outage preserves its container data; it is not a lost-data disaster
 recovery test. Kubernetes manifests are still rendered separately in CI, but
 these tests intentionally do not test Kubernetes scheduling or ConfigMap mounts.
-
-This replaces the former Docker Desktop Kubernetes shell suite; its connector
-and fault gateway fixtures were retained, while orchestration and assertions
-are now Go tests managed by Testcontainers.

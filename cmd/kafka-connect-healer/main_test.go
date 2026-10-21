@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -21,6 +22,8 @@ import (
 
 	"github.com/Entropic-Works/kafka-connect-healer/internal/config"
 	"github.com/Entropic-Works/kafka-connect-healer/internal/connectcluster"
+	logsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestExampleConfigurations(t *testing.T) {
@@ -88,12 +91,49 @@ func TestMainStartupAndShutdown(t *testing.T) {
 		arguments         []string
 		want              string
 		healthUnavailable bool
+		telemetry         bool
 	}{
 		{name: "defaults", want: "polling started"},
 		{name: "explicit empty clusters", arguments: []string{"--connect-clusters=" + emptyClusters}, want: "no Connect clusters configured; polling disabled"},
+		{name: "telemetry without pollers", arguments: []string{"--connect-clusters=" + emptyClusters}, want: "no Connect clusters configured; polling disabled", telemetry: true},
 		{name: "health API bind failure", arguments: []string{"--connect-clusters=" + emptyClusters}, want: "health serving failed; polling will continue", healthUnavailable: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			arguments := slices.Clone(test.arguments)
+			var exportedLogs sync.Map
+			if test.telemetry {
+				application := filepath.Join(t.TempDir(), "application.yaml")
+				if err := os.WriteFile(application, []byte("telemetryConfig:\n  enabled: true\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				arguments = append(arguments, "--config="+application)
+				receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+					body, err := io.ReadAll(request.Body)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					if request.URL.Path == "/v1/logs" {
+						var payload logsv1.ExportLogsServiceRequest
+						if err := proto.Unmarshal(body, &payload); err != nil {
+							t.Error(err)
+							return
+						}
+						for _, resource := range payload.ResourceLogs {
+							for _, scope := range resource.ScopeLogs {
+								for _, record := range scope.LogRecords {
+									exportedLogs.Store(record.Body.GetStringValue(), true)
+								}
+							}
+						}
+					}
+					w.Header().Set("Content-Type", "application/x-protobuf")
+				}))
+				t.Cleanup(receiver.Close)
+				t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "")
+				t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", receiver.URL+"/v1/metrics")
+				t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", receiver.URL+"/v1/logs")
+			}
 			if test.healthUnavailable {
 				listener, err := net.Listen("tcp", ":8081")
 				if err != nil {
@@ -103,7 +143,7 @@ func TestMainStartupAndShutdown(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			command := mainProcess(ctx, test.arguments...)
+			command := mainProcess(ctx, arguments...)
 			output, err := command.StdoutPipe()
 			if err != nil {
 				t.Fatal(err)
@@ -167,6 +207,13 @@ func TestMainStartupAndShutdown(t *testing.T) {
 			for _, message := range []string{"API graceful shutdown completed", "health graceful shutdown completed"} {
 				if !strings.Contains(logs.String(), message) {
 					t.Fatalf("missing %q: %s", message, logs.String())
+				}
+			}
+			if test.telemetry {
+				for _, message := range []string{test.want, "starting API server", "starting health server", "API graceful shutdown completed", "health graceful shutdown completed", "Kafka Connect Healer stopped"} {
+					if _, ok := exportedLogs.Load(message); !ok {
+						t.Errorf("application log %q was not exported", message)
+					}
 				}
 			}
 		})

@@ -66,10 +66,10 @@ func TestGetConfigReturnsLatestConfigurationWithoutPassword(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &fields); err != nil {
 		t.Fatal(err)
 	}
-	if len(fields) != 4 {
+	if len(fields) != 5 {
 		t.Fatal("GET config includes fields outside application configuration")
 	}
-	for _, field := range []string{"pollingBehavior", "communicationConfig", "apiConfig", "loggingConfig"} {
+	for _, field := range []string{"pollingBehavior", "communicationConfig", "apiConfig", "loggingConfig", "telemetryConfig"} {
 		if _, present := fields[field]; !present {
 			t.Fatalf("GET config omitted application field %q", field)
 		}
@@ -118,6 +118,7 @@ func TestPatchConfigRejectsInvalidUpdatesAtomically(t *testing.T) {
 	for _, body := range []string{
 		``, `null`, `[]`, `"string"`, `{`, `{} {}`,
 		`{"unknown":true}`,
+		`{"pollingBehavior":{"interval":"30s"},"telemetryConfig":{"enabled":true}}`,
 		`{"connectConfigs":{"production":{"host":"changed"}}}`,
 		`{"connectClusterAPIConfigurations":{"production":{"host":"changed"}}}`,
 		`{"pollingBehavior":{"interval":"30s"},"connectClusterAPIs":{}}`,

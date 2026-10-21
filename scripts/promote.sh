@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo=${GH_REPO:?Set GH_REPO to owner/repository}
 target=${TARGET_BRANCH:?Set TARGET_BRANCH to staging or main}
-version=${RELEASE_VERSION:?Set RELEASE_VERSION to vMAJOR.MINOR.PATCH}
+version=${RELEASE_VERSION:?Set RELEASE_VERSION to MAJOR.MINOR.PATCH}
 expected_sha=${EXPECTED_SHA:?Set EXPECTED_SHA to the full reviewed source commit}
 script_directory=$(cd "$(dirname "$0")" && pwd)
 

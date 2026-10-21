@@ -24,8 +24,10 @@ keep changes focused, and add tests for changed behavior. Update the README and
 examples when configuration or API behavior changes.
 
 ```sh
-gofmt -w cmd internal
+gofmt -w cmd internal scripts
+go mod download
 go mod verify
+go mod tidy -diff
 bash scripts/test-repository-policy.sh
 go build ./...
 go vet ./...
@@ -37,19 +39,21 @@ go -C tests/integration test -race -count=1 -timeout=20m ./...
 ```
 
 The container smoke test requires Docker, Bash, curl, jq, tar, and diff. Go tests
-start local HTTP servers. Vendored dependencies are checked in; after intentionally
-changing dependencies, run `go mod tidy` and `go mod vendor`. Do not edit `vendor/`
-by hand. The vulnerability check downloads its tool and accesses the Go vulnerability
-database, even though application dependencies are vendored.
+start local HTTP servers. Go downloads dependencies into its module cache; fresh
+builds require network access. After intentionally changing dependencies, run
+`go mod tidy` and commit the updated `go.mod` and `go.sum`. CI checks that these
+files stay tidy and uses `GOFLAGS=-mod=readonly` for builds and tests. The
+vulnerability check also downloads its tool and accesses the Go vulnerability
+database.
 
 The [integration suite](tests/integration/README.md) requires a working Docker
 daemon and downloads its own test-only dependencies. It runs in CI on pull
 requests into `dev`, `staging`, and `main`, and for release tags. Every
 promotion requires the full suite to pass. Feature pushes run formatting, build,
 and unit tests; protected branch pushes also run the full fast checks and container
-smoke test. PRs run the complete validation. Its separate module is not vendored into
-the production application. Run `go mod tidy` inside `tests/integration/` when
-changing those dependencies; do not run `go mod vendor` there. Its Go test setup
+smoke test. PRs run the complete validation. Its separate module keeps Testcontainers
+out of the application's dependency graph. Run `go mod tidy` inside
+`tests/integration/` when changing those dependencies. Its Go test setup
 builds current application/fixture images automatically. Docker's CLI and
 BuildKit are required; Bash is not required for this suite. Use an isolated local
 Docker daemon, not a production Docker host.
@@ -59,8 +63,9 @@ retain ownership of their contributions; submitting a pull request does not assi
 copyright to Entropic Works. Only submit code you have the right to contribute, and
 preserve third-party license notices.
 
-Dependency-update pull requests follow the same review process. For updates to
-the root Go module, verify that `vendor/` was regenerated and its notices are
-preserved. Never commit actual runtime configuration or credentials; local files
-under `config/` and files named `*-secret.yaml`/`*-secret.yml` are ignored. Public
+Dependency-update pull requests follow the same review process. Review module-file
+changes, dependency licenses, and the container smoke test. The Docker build
+collects licenses automatically from imported modules; its smoke test checks that
+the resulting notices are packaged. Never commit actual runtime configuration or
+credentials; local files under `config/` and files named `*-secret.yaml`/`*-secret.yml` are ignored. Public
 test fixtures under `tests/fixtures/` are intentional exceptions.

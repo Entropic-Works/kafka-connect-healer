@@ -2,10 +2,9 @@
 
 ## Supported versions
 
-Until the first release, security fixes target `dev` and follow promotion through
-`staging` and `main`. After releases begin, only
-the latest non-prerelease version is supported; fixes may require upgrading rather
-than receiving a backport. No response-time or support SLA is promised.
+Only the latest non-prerelease version is supported. Security fixes may require
+upgrading rather than receiving a backport. No response-time or support SLA is
+promised.
 
 ## Reporting a vulnerability
 
@@ -14,8 +13,7 @@ requests. Use GitHub's private reporting channel:
 
 https://github.com/Entropic-Works/kafka-connect-healer/security/advisories/new
 
-Maintainers must enable private vulnerability reporting in repository settings
-before public release. If the private reporting option is unavailable, open an issue
+If the private reporting option is unavailable, open an issue
 requesting a private contact method without disclosing vulnerability details.
 
 Include the affected version, impact, sanitized reproduction steps, and suggested
