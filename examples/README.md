@@ -28,10 +28,8 @@ belong in separate, untracked Secret overlay files, not these examples. See the
 ## Kubernetes
 
 Edit `kubernetes/connect-clusters.yaml` to use your Kafka Connect Service hostname.
-Set the Deployment image to a published Docker Hub tag that serves `/livez` and
-`/readyz` on port 8081; replace the `0.1.0` placeholder if that release lacks this
-health server. For a private Docker Hub repository, configure
-an `imagePullSecret` on the pod before deploying.
+The Deployment uses `ghcr.io/entropic-works/kafka-connect-healer:0.0.3`, with
+unauthenticated health probes on port 8081.
 
 ```sh
 kubectl kustomize examples/kubernetes

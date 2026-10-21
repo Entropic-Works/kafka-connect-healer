@@ -19,3 +19,6 @@
 .DS_Store
 .idea/
 .vscode/
+
+# Local planning notes
+/todo.md

@@ -28,8 +28,6 @@ go run ./cmd/kafka-connect-healer
 
 For a standalone binary without Docker, see [Build from source](#build-from-source).
 
-The Go module path is `github.com/Entropic-Works/kafka-connect-healer`. Application packages remain under `internal/`; this project is a service, not a public Go library.
-
 Supply optional application settings and cluster definitions using separate YAML files:
 
 ```sh
@@ -81,9 +79,8 @@ shutdown request cancellation is DEBUG rather than a failure.
 
 ## Build from source
 
-Docker and the published image are optional. You can review the source, build it
-with your organization's approved Go toolchain, and run the binary directly or
-package it in your own internal image.
+Build a standalone binary with Go, or build a container image with the project's
+Dockerfile.
 
 Clone the repository as shown above and check out the release tag or commit you
 have reviewed. Use Go 1.27.2 or later, as required by `go.mod`. For consistent builds,
@@ -146,9 +143,8 @@ See [Tests](#tests) for pre-deployment checks.
 
 ## Docker
 
-Release images are published to `entropicworks/kafka-connect-healer` on Docker Hub
-for Linux amd64 and arm64. Use an explicit published version tag, such as `0.1.0`;
-the first tag will only become available after the release workflow completes.
+Release images are published to `ghcr.io/entropic-works/kafka-connect-healer` on GitHub Container Registry (GHCR)
+for Linux amd64 and arm64. Use an explicit published version tag, such as `0.0.3`.
 
 Build the image:
 
@@ -246,10 +242,6 @@ In the cluster file, `<cluster>.host` is a DNS hostname or unbracketed IP addres
 Durations are positive strings with units, such as `250ms`, `10s`, `1.5s`, or `1m30s`. Supported units are `ns`, `us` (or `µs`), `ms`, `s`, `m`, and `h`. Numeric, invalid, nonpositive, or overflowing durations are rejected. The maximum backoff delay must be at least the base delay. The default base delay is `20s`, independently of any configured polling interval.
 
 Each file must contain exactly one YAML mapping document. Unknown keys, duplicate keys, null values, aliases, and YAML merge keys are rejected. An application file or Secret overlay containing `{}` keeps existing values; a cluster base file containing `{}` starts with no clusters. Decoder errors omit raw values to prevent credentials from reaching logs.
-
-### Migration from environment variables
-
-The application no longer reads `RESTARTER_*` environment variables. Move their values into the corresponding YAML fields and mount the file. For example, `RESTARTER_POLL_INTERVAL=30s` becomes `pollingBehavior.interval: 30s`, and Connect credentials become `<cluster>.authConfig.username` and `<cluster>.authConfig.password` in the cluster Secret overlay. Move endpoint settings into a named entry in the cluster file. Remove the old environment entries from the Deployment to avoid misleading configuration.
 
 ## Kubernetes
 
@@ -478,22 +470,25 @@ precautions.
 
 Contributions target `dev`; maintainers promote reviewed changes through `staging`
 and `main`, the default and release branch. See [MAINTAINERS.md](MAINTAINERS.md), the
-[code of conduct](CODE_OF_CONDUCT.md), and [repository administration](docs/REPOSITORY.md).
+[code of conduct](CODE_OF_CONDUCT.md), and [repository workflow](docs/REPOSITORY.md).
 
 ## Releases
 
-The release workflow publishes to Docker Hub's `entropicworks/kafka-connect-healer`
+The release workflow publishes to GHCR's `ghcr.io/entropic-works/kafka-connect-healer`
 repository only after the full CI checks pass for the tagged commit. It builds Linux
 amd64 and arm64 images and attaches an SBOM and build provenance. Only the full
 version tag is published (`0.1.0`, or a prerelease such as `0.1.0-rc.1`); no floating
 `latest`, major, or minor tags are updated. The runtime image includes `LICENSE`,
 `NOTICE`, and dependency licenses.
 
+Release images support anonymous pulls from GHCR. Maintainers can find publication
+instructions in the [release runbook](docs/RELEASING.md#tag-and-publish).
+
 Stable release tags must point to a commit promoted to `main`; prerelease
 tags must point to a commit promoted to `staging`. Both rerun the full CI suite,
 including integration tests, before publishing. Follow the
 [release runbook](docs/RELEASING.md) for promotion, tagging, publishing credentials,
-and release notes. See [repository administration](docs/REPOSITORY.md) for branch
+and release notes. See [repository workflow](docs/REPOSITORY.md) for branch
 and tag protections. After full CI, the workflow publishes images and smoke tests
 both platform digests on native runners before creating a GitHub release with
 verified digests. It does not upload standalone binary archives.
