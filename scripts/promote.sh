@@ -62,7 +62,7 @@ fi
   printf '\n[Compare source](https://github.com/%s/compare/%s...%s)\n\n' "$repo" "$base_sha" "$source_sha"
   printf '## Release validation\n\n'
   printf -- '- [ ] Full CI, including real Kafka/Connect integration, passes on this PR.\n'
-  printf -- '- [ ] Compatibility, migration steps, and known limitations have been reviewed.\n'
+  printf -- '- [ ] Configuration/API compatibility and known limitations have been reviewed.\n'
   printf -- '- [ ] Candidate validation and tested Kafka/Connect versions are recorded below.\n\n'
   printf 'Record release-specific validation here before merging.\n'
 } > "$workspace/body.md"
