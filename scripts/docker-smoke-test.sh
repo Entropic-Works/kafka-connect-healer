@@ -6,6 +6,7 @@ image="${1:-kafka-connect-healer:local}"
 container_id=""
 api_url=""
 health_url=""
+license_directory=""
 
 cleanup() {
   result=$?
@@ -14,6 +15,9 @@ cleanup() {
       docker logs "$container_id" >&2 || true
     fi
     docker rm --force "$container_id" >/dev/null || true
+  fi
+  if [[ -n "$license_directory" ]]; then
+    rm -rf "$license_directory"
   fi
 }
 trap cleanup EXIT
@@ -52,6 +56,14 @@ stop_container() {
 start_container
 [[ "$(docker inspect --format '{{.Config.User}}' "$container_id")" == '65532:65532' ]]
 docker cp "$container_id:/licenses/kafka-connect-healer-NOTICE" - | tar -xOf - | diff NOTICE -
+license_directory=$(mktemp -d)
+docker cp "$container_id:/licenses/dependencies/." "$license_directory"
+[[ -s "$license_directory/modules.txt" ]]
+while read -r module version; do
+  [[ -n "$module" && -n "$version" ]]
+  notice=$(find "$license_directory/$module" -type f -print -quit)
+  [[ -n "$notice" && -s "$notice" ]]
+done < "$license_directory/modules.txt"
 curl --fail --silent --show-error --max-time 5 "$api_url/" | jq -e 'any(.[]; .method == "PUT" and .path == "/clusters/{name}")' >/dev/null
 curl --fail --silent --show-error --max-time 5 "$api_url/config" | jq -e '.pollingBehavior.interval == "10s" and (.apiConfig.authConfig | has("password") | not)' >/dev/null
 curl --fail --silent --show-error --max-time 5 "$api_url/clusters" | jq -e '. == {}' >/dev/null

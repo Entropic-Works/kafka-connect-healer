@@ -20,6 +20,7 @@ import (
 	"github.com/Entropic-Works/kafka-connect-healer/internal/health"
 	"github.com/Entropic-Works/kafka-connect-healer/internal/logging"
 	"github.com/Entropic-Works/kafka-connect-healer/internal/poll"
+	"github.com/Entropic-Works/kafka-connect-healer/internal/telemetry"
 )
 
 func main() {
@@ -45,6 +46,30 @@ func run() int {
 	loggingLevel.Set(startupConfiguration.LoggingConfig.Level)
 	logging.Configure(loggingLevel)
 
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
+	if startupConfiguration.TelemetryConfig.Enabled {
+		shutdownTelemetry, err := telemetry.Start(ctx)
+		if err != nil {
+			slog.Error("telemetry startup failed", "error", err)
+			return 1
+		}
+		console := slog.Default()
+		slog.SetDefault(logging.WithTelemetry(console))
+		defer func() {
+			slog.SetDefault(console)
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := shutdownTelemetry(shutdownCtx); err != nil {
+				slog.Warn("telemetry shutdown failed", "error", err)
+			}
+		}()
+	}
+
 	clusters, err := connectcluster.LoadFiles(*clustersPath, *clustersSecretPath)
 	if err != nil {
 		slog.Error("Connect cluster configuration loading failed", "error", err)
@@ -59,13 +84,6 @@ func run() int {
 	} else {
 		slog.Info("Connect clusters configured", "cluster_count", len(clusters), "cluster_config_source", clusterSource)
 	}
-
-	ctx, stop := signal.NotifyContext(
-		context.Background(),
-		os.Interrupt,
-		syscall.SIGTERM,
-	)
-	defer stop()
 
 	configurationManager := config.NewManager(startupConfiguration)
 	configuration := configurationManager.GetConfiguration()

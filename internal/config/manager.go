@@ -46,6 +46,9 @@ func (m *Manager) UpdateConfiguration(changeConfig func(*ApplicationConfiguratio
 	if nextConfiguration.APIConfig != m.configuration.APIConfig {
 		return fmt.Errorf("apiConfig: API authentication is startup-only; update the YAML configuration and restart")
 	}
+	if nextConfiguration.TelemetryConfig != m.configuration.TelemetryConfig {
+		return fmt.Errorf("telemetryConfig: telemetry is startup-only; update the YAML configuration and restart")
+	}
 	if err := ValidateConfiguration(nextConfiguration); err != nil {
 		return err
 	}

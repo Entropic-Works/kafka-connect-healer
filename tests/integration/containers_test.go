@@ -56,6 +56,7 @@ type suite struct {
 	primary   *worker
 	secondary *worker
 	healer    *testcontainers.DockerContainer
+	collector *testcontainers.DockerContainer
 	api       string
 	client    *http.Client
 	ca        []byte
@@ -147,7 +148,9 @@ func newSuite(t *testing.T) *suite {
 	execOK(t, s.broker, "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "broker:9092", "--create", "--topic", "healer-e2e-records", "--partitions", "1", "--replication-factor", "1")
 	s.primary = s.startWorker(t, "connect", true)
 	s.secondary = s.startWorker(t, "connect-secondary", false)
-	s.healer = s.startHealer(t, "healer", applicationYAML, clustersYAML("8444"))
+	s.collector = s.startCollector(t)
+	s.healer = s.startHealer(t, "healer", applicationYAML+"telemetryConfig:\n  enabled: true\n", clustersYAML("8444"),
+		testcontainers.WithEnv(telemetryEnvironment("kafka-connect-healer-integration")))
 	s.api = endpoint(t, s.healer, "8080/tcp", "http")
 	eventually(t, 30*time.Second, "authenticated Healer API ready", func() bool {
 		code, _, _ := request(s.client, http.MethodGet, s.api+"/config", nil, apiUsername, apiPassword, "")

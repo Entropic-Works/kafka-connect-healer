@@ -167,6 +167,7 @@ func TestIntegration(t *testing.T) {
 	t.Run("InvalidSnapshots", func(t *testing.T) { testInvalidSnapshots(t, s) })
 	t.Run("TimeoutTLSAndClusterIsolation", func(t *testing.T) { testIsolation(t, s) })
 	t.Run("BrokerOutage", func(t *testing.T) { testBrokerOutage(t, s) })
+	t.Run("Telemetry", func(t *testing.T) { testTelemetry(t, s) })
 	t.Run("StartupAndShutdown", func(t *testing.T) { testStartup(t, s) })
 }
 

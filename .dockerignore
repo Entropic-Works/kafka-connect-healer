@@ -1,10 +1,11 @@
 # Only send build inputs; configuration files and secrets stay outside the context.
 **
 !go.mod
+!go.sum
 !LICENSE
 !NOTICE
-!vendor/
-!vendor/**
+!scripts/
+!scripts/collect-licenses.sh
 !cmd/
 !cmd/**
 !internal/

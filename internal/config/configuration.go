@@ -30,6 +30,7 @@ type ApplicationConfiguration struct {
 	CommunicationConfig CommunicationConfiguration `json:"communicationConfig" yaml:"communicationConfig"`
 	APIConfig           APIConfiguration           `json:"apiConfig" yaml:"apiConfig"`
 	LoggingConfig       LoggingConfiguration       `json:"loggingConfig" yaml:"loggingConfig"`
+	TelemetryConfig     TelemetryConfiguration     `json:"telemetryConfig" yaml:"telemetryConfig"`
 }
 
 type APIConfiguration struct {
@@ -38,4 +39,10 @@ type APIConfiguration struct {
 
 type LoggingConfiguration struct {
 	Level slog.Level `json:"level" yaml:"level"`
+}
+
+// TelemetryConfiguration enables polling metrics for every Connect cluster and application logs.
+// OTLP connection settings use the exporters' standard OTEL_* environment variables.
+type TelemetryConfiguration struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
 }

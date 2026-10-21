@@ -28,8 +28,6 @@ go run ./cmd/kafka-connect-healer
 
 For a standalone binary without Docker, see [Build from source](#build-from-source).
 
-The Go module path is `github.com/Entropic-Works/kafka-connect-healer`. Application packages remain under `internal/`; this project is a service, not a public Go library.
-
 Supply optional application settings and cluster definitions using separate YAML files:
 
 ```sh
@@ -81,9 +79,8 @@ shutdown request cancellation is DEBUG rather than a failure.
 
 ## Build from source
 
-Docker and the published image are optional. You can review the source, build it
-with your organization's approved Go toolchain, and run the binary directly or
-package it in your own internal image.
+Build a standalone binary with Go, or build a container image with the project's
+Dockerfile.
 
 Clone the repository as shown above and check out the release tag or commit you
 have reviewed. Use Go 1.27.2 or later, as required by `go.mod`. For consistent builds,
@@ -92,15 +89,18 @@ use the same Go version across your build machines.
 Build for the current machine (commands below use a POSIX shell):
 
 ```sh
-CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off \
-  go build -mod=vendor -trimpath -o bin/kafka-connect-healer ./cmd/kafka-connect-healer
+GOTOOLCHAIN=local go mod download
+go mod verify
+CGO_ENABLED=0 GOTOOLCHAIN=local \
+  go build -mod=readonly -trimpath -o bin/kafka-connect-healer ./cmd/kafka-connect-healer
 ```
 
-Dependencies are included in `vendor/`; this command does not download modules or
-a Go toolchain. For an offline build, first make the source tree (including `vendor/`)
-and the required Go toolchain available in your build environment. No C compiler is
-required. `GOTOOLCHAIN=local` makes the build fail if the installed Go version is too
-old rather than automatically downloading a newer one.
+Dependencies are downloaded into Go's module cache using the versions and
+checksums recorded in `go.mod` and `go.sum`. A fresh build needs network access to
+populate that cache. No C compiler is required. `-mod=readonly` prevents builds
+from silently updating dependency requirements. `GOTOOLCHAIN=local` makes the
+build fail if the installed Go version is too old rather than automatically
+downloading a newer one.
 
 Run the binary with the example configuration:
 
@@ -118,8 +118,8 @@ access and configure authentication before exposing it.
 To cross-compile a Linux amd64 binary, even from macOS:
 
 ```sh
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off \
-  go build -mod=vendor -trimpath -o bin/kafka-connect-healer-linux-amd64 ./cmd/kafka-connect-healer
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 GOTOOLCHAIN=local \
+  go build -mod=readonly -trimpath -o bin/kafka-connect-healer-linux-amd64 ./cmd/kafka-connect-healer
 ```
 
 Use `GOARCH=arm64` and a corresponding output filename for Linux arm64. The Linux
@@ -131,13 +131,20 @@ way as when using `go run` or Docker.
 
 For internal redistribution, include `LICENSE`, `NOTICE`, and applicable third-party
 license notices alongside your binary or image. Keep the reviewed source revision
-and Go version in your build records. See [Tests](#tests) for pre-deployment checks.
+and Go version in your build records. To collect dependency notices into a new
+directory, run the following from the repository root, with the same `GOOS` and
+`GOARCH` used for your binary:
+
+```sh
+sh scripts/collect-licenses.sh bin/dependency-licenses
+```
+
+See [Tests](#tests) for pre-deployment checks.
 
 ## Docker
 
-Release images are published to `entropicworks/kafka-connect-healer` on Docker Hub
-for Linux amd64 and arm64. Use an explicit published version tag, such as `v0.1.0`;
-the first tag will only become available after the release workflow completes.
+Release images are published to `ghcr.io/entropic-works/kafka-connect-healer` on GitHub Container Registry (GHCR)
+for Linux amd64 and arm64. Use an explicit published version tag, such as `0.0.3`.
 
 Build the image:
 
@@ -145,7 +152,15 @@ Build the image:
 docker build -t kafka-connect-healer:local .
 ```
 
-The build uses Go 1.27.2 and vendored dependencies, with networking disabled during compilation. The final `scratch` image contains only the stripped, statically linked binary, public HTTPS CA certificates, and dependency licenses. It runs as non-root UID/GID `65532`, contains no shell or package manager, and supports a read-only root filesystem. Build tools and dependency source code are not included in the runtime image. `.dockerignore` limits the build context to source code and vendored dependencies; configuration files and secrets should be mounted at runtime, not built into the image.
+The build uses Go 1.27.2 and downloads and verifies dependencies in a separate
+Docker layer. Changes to application code reuse that layer; changes to `go.mod`
+or `go.sum` refresh it. Compilation and license collection then run with networking
+disabled. The final `scratch` image contains only the stripped, statically linked
+binary, public HTTPS CA certificates, and license notices. It runs as non-root
+UID/GID `65532`, contains no shell or package manager, and supports a read-only
+root filesystem. Build tools and dependency source code stay in the build stage.
+`.dockerignore` limits the build context to application source, module files, the
+license collector, and project notices. Mount configuration and secrets at runtime.
 
 To run with YAML files in an existing local `config` directory:
 
@@ -220,16 +235,13 @@ The available settings and defaults are:
 | `pollingBehavior.backoff.maxDelay` | `10m` |
 | `pollingBehavior.backoff.exponential` | `true` |
 | `loggingConfig.level` | `INFO` |
+| `telemetryConfig.enabled` | `false` |
 
 In the cluster file, `<cluster>.host` is a DNS hostname or unbracketed IP address (for example, `kafka-connect`, `127.0.0.1`, or `2001:db8::1`), without a URL scheme, port, path, or whitespace. Invalid host syntax is rejected at startup. `<cluster>.port` is a string containing only decimal digits, between 1 and 65535, such as `"8083"`. In the application file, `loggingConfig.level` accepts Go slog levels such as `DEBUG`, `INFO`, `WARN`, and `ERROR`. Connect requests do not follow redirects; a redirect is treated as an unsuccessful status rather than allowing a restart POST to become a GET or send credentials to another endpoint.
 
 Durations are positive strings with units, such as `250ms`, `10s`, `1.5s`, or `1m30s`. Supported units are `ns`, `us` (or `µs`), `ms`, `s`, `m`, and `h`. Numeric, invalid, nonpositive, or overflowing durations are rejected. The maximum backoff delay must be at least the base delay. The default base delay is `20s`, independently of any configured polling interval.
 
 Each file must contain exactly one YAML mapping document. Unknown keys, duplicate keys, null values, aliases, and YAML merge keys are rejected. An application file or Secret overlay containing `{}` keeps existing values; a cluster base file containing `{}` starts with no clusters. Decoder errors omit raw values to prevent credentials from reaching logs.
-
-### Migration from environment variables
-
-The application no longer reads `RESTARTER_*` environment variables. Move their values into the corresponding YAML fields and mount the file. For example, `RESTARTER_POLL_INTERVAL=30s` becomes `pollingBehavior.interval: 30s`, and Connect credentials become `<cluster>.authConfig.username` and `<cluster>.authConfig.password` in the cluster Secret overlay. Move endpoint settings into a named entry in the cluster file. Remove the old environment entries from the Deployment to avoid misleading configuration.
 
 ## Kubernetes
 
@@ -278,6 +290,14 @@ Basic Auth does not encrypt credentials. The service still listens using HTTP; u
 
 `PATCH /config` accepts a partial application JSON object using the same field names and requires `Content-Type: application/json` (parameters such as `charset=utf-8` are accepted). Missing, malformed, or unsupported content types return `415` with `Accept-Patch: application/json`. Supplied fields replace their current values; omitted fields retain them, including an omitted API authentication password. The complete resulting configuration must pass the same validation as startup. Invalid updates return `400` without changing stored values. Field errors identify the affected path without exposing submitted values. Successful updates return `204 No Content` and notify the polling and logging workers. Bodies larger than 64 KiB return `413`; body-read timeouts return `408`.
 
+Telemetry enablement is startup-only. Changing `telemetryConfig.enabled` returns
+`400` with `telemetryConfig: telemetry is startup-only; update the YAML configuration and restart`.
+The entire patch is rejected, including any other supplied changes. Omitting
+telemetry settings or resubmitting their current value is allowed; a patch with
+no effective changes returns `204` without notifying workers. `GET /config`
+includes the current telemetry setting. OTLP endpoint and authentication settings
+use environment variables and are not accepted by this API.
+
 ```sh
 curl -X PATCH http://localhost:8080/config \
   -H 'Content-Type: application/json' \
@@ -311,13 +331,28 @@ Cluster updates are also in-memory only. Startup YAML files remain untouched, an
 Copyright 2026 Entropic Works, Inc. See [NOTICE](NOTICE) for attribution.
 
 Kafka Connect Healer is licensed under the [Apache License, Version 2.0](LICENSE).
-Third-party dependencies retain their own licenses and notices, which are preserved in `vendor/` and included in the Docker image.
+Third-party dependencies retain their own licenses and notices. The Docker build
+collects them from the module cache for the modules imported by the application,
+preserving their paths under `/licenses/dependencies/`. That directory also
+contains `modules.txt`, which records their module paths and versions. The
+collector discovers dependencies automatically when imports change.
 
-## Vendored dependencies
+## Dependencies
 
-`vendor/` contains copies of the dependency packages needed to build and test the application; currently this is `go.yaml.in/yaml/v3`. Go automatically uses this directory for ordinary builds and tests when it is present. The Docker build explicitly uses `-mod=vendor`, so compilation does not download dependencies. Vendoring is optional for Go modules, but useful when builds must work without access to a module proxy. It does not reduce the runtime image size; only compiled code is included in the binary.
+Dependencies use Go modules; their source is cached outside the repository.
+Commit `go.mod` and `go.sum` after adding, removing, or updating a dependency:
 
-After changing dependencies in `go.mod`, run `go mod vendor` and commit the updated vendor tree. Do not edit vendored source files directly. See [Go's vendoring documentation](https://go.dev/ref/mod#vendoring).
+```sh
+go get example.com/module@v1.2.3
+go mod tidy
+go mod verify
+```
+
+Review the module-file changes and run the checks below. CI downloads dependencies,
+verifies the module cache, checks `go mod tidy -diff`, and runs build/test commands
+with `GOFLAGS=-mod=readonly`. Root and integration dependencies remain in separate
+modules. Apply dependency changes and run `go mod tidy` in the module that uses
+them. See [Go's module documentation](https://go.dev/ref/mod).
 
 ## Tests
 
@@ -361,7 +396,66 @@ The Go test setup builds current local test images automatically, then runs the
 suite with race detection. Build and container logs are saved in
 `tests/integration/artifacts/`. The suite has a separate Go
 module, so `go test ./...` at the project root remains the fast unit-test suite
-and the production vendor directory contains no Testcontainers dependencies.
+and Testcontainers stays outside the application's dependency graph.
+
+## Telemetry
+
+Set `telemetryConfig.enabled: true` in the application YAML to export metrics and
+all application logs. Polling metrics cover every Connect cluster, including
+clusters added through the API. This setting is startup-only. Console logging
+remains enabled, and both outputs follow `loggingConfig.level`. Log export starts
+after application configuration is loaded and telemetry initializes; earlier
+configuration failures remain console-only. SDK/exporter diagnostics also stay
+console-only to avoid exporting errors about failed log exports.
+
+Export uses OTLP/HTTP with protobuf. Configure the shared destination with the
+standard exporter environment variables, for example:
+
+```sh
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://telemetry.example.com
+export OTEL_EXPORTER_OTLP_HEADERS='Authorization=Bearer%20<token>'
+```
+
+The exporters append `/v1/metrics` and `/v1/logs` to the shared endpoint. Platforms
+with separate signal URLs can use `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` and
+`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` instead; these must include the complete paths.
+Authentication headers and TLS certificates use the standard `OTEL_EXPORTER_OTLP_*`
+settings and are not part of the configuration API. HTTP endpoints are supported
+for local collectors. The service name defaults to `kafka-connect-healer` and can
+be overridden with `OTEL_SERVICE_NAME`.
+
+Every metric has a `connect_cluster` attribute:
+
+| Metric | Type | Additional attributes |
+| --- | --- | --- |
+| `healer.poll.cycles` | Counter | `outcome=success\|error\|canceled` |
+| `healer.poll.duration` | Histogram, seconds | `outcome` |
+| `healer.restart.requests` | Counter | `connector`, `action`, `task_id` (task restarts only), `outcome=accepted\|error\|canceled` |
+
+A cycle succeeds when status retrieval and all attempted restarts complete without
+error. Failed connectors and backoff skips do not themselves make a cycle fail.
+Restart counters count attempted HTTP requests; an accepted request does not prove
+recovery. `action` is `restart_connector` or `restart_task`; task restarts include
+the numeric `task_id`, including task zero. Cycle counts and duration describe
+the whole cluster and have no connector or task attributes. Normal shutdown and
+cluster-replacement cancellation are separate from errors, while request timeouts
+count as errors.
+
+Counters retain process-lifetime history for each cluster name. Cycle rates,
+error counts, and missing-data alerts can be used to monitor polling activity.
+
+Metrics export periodically and logs export in batches using bounded buffering.
+Startup does not check destination connectivity or credentials. With no endpoint
+configured, the pinned exporters default to `https://localhost:4318`. Invalid
+exporter environment values may produce a console diagnostic and fall back to SDK
+defaults. An initialization error returned to the application (for example,
+malformed `OTEL_RESOURCE_ATTRIBUTES`) stops startup with exit code 1.
+
+An unreachable destination, rejected credentials, or TLS errors during export
+produce console diagnostics without stopping polling or the HTTP servers.
+Telemetry delivery is best effort: failed batches or a full log queue can lose
+records. Shutdown attempts to flush telemetry within five seconds after the
+pollers and HTTP servers stop.
 
 ## Contributing and security
 
@@ -376,22 +470,25 @@ precautions.
 
 Contributions target `dev`; maintainers promote reviewed changes through `staging`
 and `main`, the default and release branch. See [MAINTAINERS.md](MAINTAINERS.md), the
-[code of conduct](CODE_OF_CONDUCT.md), and [repository administration](docs/REPOSITORY.md).
+[code of conduct](CODE_OF_CONDUCT.md), and [repository workflow](docs/REPOSITORY.md).
 
 ## Releases
 
-The release workflow publishes to Docker Hub's `entropicworks/kafka-connect-healer`
+The release workflow publishes to GHCR's `ghcr.io/entropic-works/kafka-connect-healer`
 repository only after the full CI checks pass for the tagged commit. It builds Linux
 amd64 and arm64 images and attaches an SBOM and build provenance. Only the full
-version tag is published (`v0.1.0`, or a prerelease such as `v0.1.0-rc.1`); no floating
+version tag is published (`0.1.0`, or a prerelease such as `0.1.0-rc.1`); no floating
 `latest`, major, or minor tags are updated. The runtime image includes `LICENSE`,
 `NOTICE`, and dependency licenses.
+
+Release images support anonymous pulls from GHCR. Maintainers can find publication
+instructions in the [release runbook](docs/RELEASING.md#tag-and-publish).
 
 Stable release tags must point to a commit promoted to `main`; prerelease
 tags must point to a commit promoted to `staging`. Both rerun the full CI suite,
 including integration tests, before publishing. Follow the
 [release runbook](docs/RELEASING.md) for promotion, tagging, publishing credentials,
-and release notes. See [repository administration](docs/REPOSITORY.md) for branch
+and release notes. See [repository workflow](docs/REPOSITORY.md) for branch
 and tag protections. After full CI, the workflow publishes images and smoke tests
 both platform digests on native runners before creating a GitHub release with
 verified digests. It does not upload standalone binary archives.

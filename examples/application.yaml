@@ -14,3 +14,5 @@ apiConfig:
     enabled: false
 loggingConfig:
   level: INFO
+telemetryConfig:
+  enabled: false

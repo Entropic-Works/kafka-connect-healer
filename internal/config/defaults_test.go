@@ -4,6 +4,9 @@ import "testing"
 
 func TestDefaultConfigurationMatchesComponentDefaults(t *testing.T) {
 	got := DefaultConfiguration()
+	if got.TelemetryConfig.Enabled {
+		t.Fatal("telemetry should be disabled by default")
+	}
 
 	if got.CommunicationConfig != DefaultCommunicationConfiguration() {
 		t.Fatalf("CommunicationConfig = %#v, want %#v", got.CommunicationConfig, DefaultCommunicationConfiguration())
