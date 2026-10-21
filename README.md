@@ -11,7 +11,7 @@ Polls the REST APIs of named Kafka Connect clusters and restarts failed connecto
 
 ## Run
 
-Requires Go 1.27.2 or later.
+Requires Go 1.27.3 or later.
 
 Clone the repository first:
 
@@ -83,7 +83,7 @@ Build a standalone binary with Go, or build a container image with the project's
 Dockerfile.
 
 Clone the repository as shown above and check out the release tag or commit you
-have reviewed. Use Go 1.27.2 or later, as required by `go.mod`. For consistent builds,
+have reviewed. Use Go 1.27.3 or later, as required by `go.mod`. For consistent builds,
 use the same Go version across your build machines.
 
 Build for the current machine (commands below use a POSIX shell):
@@ -152,7 +152,7 @@ Build the image:
 docker build -t kafka-connect-healer:local .
 ```
 
-The build uses Go 1.27.2 and downloads and verifies dependencies in a separate
+The build uses Go 1.27.3 and downloads and verifies dependencies in a separate
 Docker layer. Changes to application code reuse that layer; changes to `go.mod`
 or `go.sum` refresh it. Compilation and license collection then run with networking
 disabled. The final `scratch` image contains only the stripped, statically linked
