@@ -80,7 +80,6 @@ jobs:
   verify-images:
     permissions:
       contents: read
-      packages: read
     needs: publish
     strategy:
       fail-fast: false
@@ -96,18 +95,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Log in to GHCR
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-      - name: Pull and smoke test the published platform digest
+      - name: Pull publicly and smoke test the published platform digest
         env:
           IMAGE_INDEX: ghcr.io/entropic-works/kafka-connect-healer@${{ needs.publish.outputs.digest }}
           RELEASE_ARCH: ${{ matrix.architecture }}
         run: |
-          docker manifest inspect "$IMAGE_INDEX" > manifest.json
+          # Release images must be usable without a registry login.
+          anonymous_config=$(mktemp -d)
+          trap 'rm -rf "$anonymous_config"' EXIT
+          export DOCKER_CONFIG="$anonymous_config"
+          if ! docker manifest inspect "$IMAGE_INDEX" > manifest.json; then
+            echo '::error::The GHCR image must be public. Check the package visibility and rerun only failed verification jobs after correcting access.'
+            exit 1
+          fi
           image=$(bash scripts/select-release-image.sh manifest.json "$IMAGE_INDEX" "$RELEASE_ARCH")
           docker pull --platform "linux/$RELEASE_ARCH" "$image"
           [[ "$(docker image inspect --format '{{.Architecture}}' "$image")" == "$RELEASE_ARCH" ]]

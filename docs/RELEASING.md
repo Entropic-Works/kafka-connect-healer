@@ -67,7 +67,7 @@ not provide isolated patch releases while keeping unrelated changes in dev.
 Release jobs publish to `ghcr.io/entropic-works/kafka-connect-healer` using
 GitHub Actions' `GITHUB_TOKEN` with `packages: write`. The package is public and
 linked to this repository through the image's source label. Verification jobs
-have `packages: read` and authenticate to GHCR before pulling image digests.
+pull image digests anonymously and confirm the package is publicly accessible.
 
 Use a clean checkout and fetch current branches and tags:
 
