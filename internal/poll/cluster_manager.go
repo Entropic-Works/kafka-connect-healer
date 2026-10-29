@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"sync"
 
@@ -144,6 +145,10 @@ func (manager *ClusterManager) Close() {
 }
 
 func (manager *ClusterManager) startCluster(name string, configuration connectcluster.Configuration) *clusterWorker {
+	if configuration.AuthConfig.Enabled && !configuration.HTTPS {
+		slog.Warn("Connect Basic Auth is enabled over HTTP; credentials are sent without transport encryption",
+			"connect_cluster", name, "endpoint", "http://"+net.JoinHostPort(configuration.Host, configuration.Port))
+	}
 	ctx, cancel := context.WithCancel(manager.applicationContext)
 	worker := &clusterWorker{configuration: configuration, cancel: cancel, done: make(chan struct{})}
 	poller := NewConnectClusterPoller(name, configuration)

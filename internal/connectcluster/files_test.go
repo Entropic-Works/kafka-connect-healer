@@ -136,6 +136,22 @@ production:
 	}
 }
 
+func TestLoadFilesAllowsAuthenticatedHTTPWithSecretOverlay(t *testing.T) {
+	base := writeConfigFile(t, "production:\n  host: connect.production.svc\n  authConfig:\n    enabled: true\n    username: connect-user\n")
+	overlay := writeConfigFile(t, "production:\n  authConfig:\n    password: connect-password\n")
+	clusters, err := LoadFiles(base, overlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Configuration{
+		Host: "connect.production.svc", Port: "8083",
+		AuthConfig: AuthConfiguration{Enabled: true, Username: "connect-user", Password: "connect-password"},
+	}
+	if len(clusters) != 1 || clusters["production"] != want {
+		t.Fatal("HTTP cluster did not retain merged authentication and endpoint defaults")
+	}
+}
+
 func TestLoadFilesClusterMembershipAndEmptyMappings(t *testing.T) {
 	got, err := LoadFiles(writeConfigFile(t, "production:\n  host: connect.production\n"), writeConfigFile(t, "production: {}\nstaging: {}"))
 	if err != nil {

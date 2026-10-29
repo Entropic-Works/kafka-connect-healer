@@ -83,6 +83,8 @@ func testStartup(t *testing.T, s *suite) {
 			{"missing_application", "{}", "{}", []string{"--config=/config/missing.yaml"}},
 			{"missing_secret", "{}", "{}", []string{"--secret-config=/config/missing.yaml"}},
 			{"invalid_cluster", "{}", "test:\n  host: https://connect\n", []string{"--connect-clusters=/config/clusters.yaml"}},
+			{"http_auth_missing_username", "{}", "test:\n  authConfig: {enabled: true, password: startup-test-only}\n", []string{"--connect-clusters=/config/clusters.yaml"}},
+			{"http_auth_missing_password", "{}", "test:\n  authConfig: {enabled: true, username: connect-test}\n", []string{"--connect-clusters=/config/clusters.yaml"}},
 			{"missing_cluster_secret", "{}", "{}", []string{"--connect-clusters-secret-config=/config/missing.yaml"}},
 			{"positional_argument", "{}", "{}", []string{"unexpected"}},
 		} {
@@ -100,6 +102,9 @@ func testStartup(t *testing.T, s *suite) {
 				// Errors before logging.Configure use slog's default text format.
 				if !strings.Contains(logs(t, app), "ERROR") || strings.Contains(logs(t, app), "starting API server") {
 					t.Fatal("invalid configuration did not fail before startup")
+				}
+				if strings.Contains(logs(t, app), "startup-test-only") {
+					t.Fatal("startup error exposed the supplied password")
 				}
 			})
 		}

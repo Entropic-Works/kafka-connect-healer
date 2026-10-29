@@ -74,11 +74,15 @@ func TestGetClustersReturnsEmptyObject(t *testing.T) {
 func TestPutClusterCreatesAndCompletelyReplacesDefinition(t *testing.T) {
 	handler, manager := newTestHandler(t)
 	response := httptest.NewRecorder()
-	request := putRequest(`{"host":"localhost","port":"8083","https":true,"authConfig":{"enabled":true,"username":"user","password":"secret"}}`)
+	request := putRequest(`{"host":"localhost","port":"8083","https":false,"authConfig":{"enabled":true,"username":"user","password":"secret"}}`)
 	request.Header.Set("Content-Type", "application/json; charset=utf-8")
 	handler.PutCluster(response, request)
 	if response.Code != http.StatusCreated || response.Header().Get("Location") != "/clusters/production" {
 		t.Fatalf("create = %d, Location = %q, body = %s", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	created := manager.GetClusters()["production"]
+	if created.HTTPS || !created.AuthConfig.Enabled || created.AuthConfig.Username != "user" || created.AuthConfig.Password != "secret" {
+		t.Fatal("HTTP cluster did not retain enabled authentication and credentials")
 	}
 	response = httptest.NewRecorder()
 	handler.PutCluster(response, putRequest(`{"host":"replacement.local","port":"8084"}`))
@@ -104,7 +108,8 @@ func TestPutClusterRejectsInvalidDefinitionsWithoutChangingStoredValues(t *testi
 		`{"host":"localhost","port":"8083","authConfig":{"password":null}}`,
 		`{"host":"localhost","port":"8083","authConfig":{"password":[]}}`,
 		`{"host":"localhost","port":"8083","authConfig":{"password":"one","password":"two"}}`,
-		`{"host":"localhost","port":"8083","authConfig":{"enabled":true,"username":"user","password":"private-secret"}}`,
+		`{"host":"localhost","port":"8083","authConfig":{"enabled":true,"password":"private-secret"}}`,
+		`{"host":"localhost","port":"8083","authConfig":{"enabled":true,"username":"user"}}`,
 		`{"host":"localhost","port":"8083","https":true,"authConfig":{"enabled":true,"username":"user"}}`,
 		"{\"host\":\"\xff\",\"port\":\"8083\"}",
 	} {

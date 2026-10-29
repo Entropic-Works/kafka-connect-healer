@@ -151,7 +151,8 @@ func testAPI(t *testing.T, s *suite) {
 			`{"host":"connect","host":"connect","port":"8443"}`, `{"host":"connect","port":8443}`,
 			`{"host":"https://connect","port":"8443"}`, `{"host":"connect","port":"0"}`, `{"host":"connect","port":"65536"}`,
 			`{"host":"connect","port":"8443","https":null}`,
-			`{"host":"connect","port":"8443","authConfig":{"enabled":true,"username":"u","password":"must-not-leak"}}`,
+			`{"host":"connect","port":"8443","authConfig":{"enabled":true,"password":"must-not-leak"}}`,
+			`{"host":"connect","port":"8443","authConfig":{"enabled":true,"username":"u"}}`,
 			`{"host":"connect","port":"8443","https":true,"authConfig":{"enabled":true,"username":"u"}}`,
 			`{"host":"connect","port":"8443"} {}`, "{\"host\":\"\xff\",\"port\":\"8443\"}",
 		} {
