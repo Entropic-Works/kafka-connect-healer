@@ -28,7 +28,7 @@ belong in separate, untracked Secret overlay files, not these examples. See the
 ## Kubernetes
 
 Edit `kubernetes/connect-clusters.yaml` to use your Kafka Connect Service hostname.
-The Deployment uses `ghcr.io/entropic-works/kafka-connect-healer:0.0.4`, with
+The Deployment uses `ghcr.io/entropic-works/kafka-connect-healer:0.0.5`, with
 unauthenticated health probes on port 8081.
 
 ```sh

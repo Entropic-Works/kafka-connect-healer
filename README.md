@@ -144,7 +144,7 @@ See [Tests](#tests) for pre-deployment checks.
 ## Docker
 
 Release images are published to `ghcr.io/entropic-works/kafka-connect-healer` on GitHub Container Registry (GHCR)
-for Linux amd64 and arm64. Use an explicit published version tag, such as `0.0.4`.
+for Linux amd64 and arm64. Use an explicit published version tag, such as `0.0.5`.
 
 Build the image:
 
@@ -480,6 +480,8 @@ precautions.
 Contributions target `dev`; maintainers promote reviewed changes through `staging`
 and `main`, the default and release branch. See [MAINTAINERS.md](MAINTAINERS.md), the
 [code of conduct](CODE_OF_CONDUCT.md), and [repository workflow](docs/REPOSITORY.md).
+For the exact maintainer commands and failure recovery, follow the
+[promotion runbook](docs/RELEASING.md#prepare-and-promote).
 
 ## Releases
 
