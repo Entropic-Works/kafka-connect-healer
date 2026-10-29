@@ -218,6 +218,8 @@ TLS settings belong to each cluster's `tls` mapping. With `tls.https: true`, cer
 
 PUT replaces the complete cluster definition, so omitting `tls.insecureSkipVerify` restores certificate verification.
 
+For Kafka Connect endpoints signed by a private corporate CA, mount a combined public and corporate CA bundle and set `SSL_CERT_FILE`. Keep certificate verification enabled. See [corporate CA deployment](docs/CORPORATE_CA.md) for Docker and Kubernetes examples.
+
 Clusters configured with the same literal endpoint generate a startup warning but remain enabled. The comparison accounts for hostname casing, a trailing DNS dot, equivalent IPv6 spellings, and leading zeros in ports; it does not resolve DNS aliases or discover whether different endpoints belong to the same Kafka Connect cluster. Duplicate pollers maintain separate backoff histories and may issue duplicate restart requests. Warnings never include authentication credentials.
 
 The available settings and defaults are:

@@ -48,6 +48,9 @@ Kafka Connect Basic Auth also supports HTTP, with an explicit warning that crede
 are sent without transport encryption. Use `tls.https: true` or protect that connection
 through your deployment's network infrastructure.
 
+For endpoints signed by a private corporate CA, follow the [corporate CA deployment
+guide](../docs/CORPORATE_CA.md) to mount a trust bundle while keeping TLS verification enabled.
+
 Kustomize generates a hashed ConfigMap name. Applying changes to either configuration
 file replaces the pod; one replica and `Recreate` avoid overlapping pollers during
 updates. Runtime API changes are not persisted, and backoff history resets on restart.
