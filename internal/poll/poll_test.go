@@ -332,7 +332,7 @@ func TestPollRemediationAndBackoffLifecycle(t *testing.T) {
 	}
 
 	clusterConfiguration := connectcluster.Configuration{
-		Host: serverURL.Hostname(), Port: serverURL.Port(), HTTPS: serverURL.Scheme == "https",
+		Host: serverURL.Hostname(), Port: serverURL.Port(), TLS: connectcluster.TLSConfiguration{HTTPS: serverURL.Scheme == "https"},
 	}
 	pollConfig := config.ApplicationConfiguration{
 		CommunicationConfig: config.CommunicationConfiguration{RequestTimeout: config.Duration(time.Second)},

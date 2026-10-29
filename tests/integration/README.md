@@ -83,6 +83,7 @@ own full stack. No scenario requires another scenario to have run first.
 | --- | --- |
 | API | Separate unauthenticated health listener, control/health route isolation, all-control-route Basic authentication, challenges, denied writes, routing/method status codes, password redaction, no-store headers, JSON duration strings, atomic partial PATCH, duplicate/unknown/null/invalid UTF-8/trailing JSON rejection, validation, 64 KiB limits, media types, slow-body timeouts, escaped cluster names and Location |
 | HTTPAuthentication | Authenticated HTTP startup with a Secret overlay, real task and connector restarts and observed recovery, rejected credentials and unauthenticated requests, invalid/identical PUTs preserve the worker, HTTP/HTTPS configuration changes, one credential-free warning per applied authenticated HTTP definition, no warning for authenticated HTTPS or unauthenticated HTTP |
+| TLSVerification | Trusted certificates verified by default; explicit bypass for untrusted certificates and hostname mismatches at startup through a Secret overlay and through PUT; real task/connector restarts and observed recovery; per-cluster isolation; restoring verification by omitting the bypass flag; invalid/identical updates preserve the worker; warning deduplication and credential redaction |
 | KafkaAndTLS | Real plugin loading, trusted HTTPS, outbound Basic authentication, running tasks, actual source records consumed from Kafka |
 | TaskPolicyBackoffAndRecovery | Disabled/enabled task policy, real task restarts, exponential/capped backoff, healthy reset, accepted-attempt and recovery logging |
 | ConnectorFailureIgnoresTaskPolicy | Failed connectors restart even when task policy is disabled; connector restart query parameters and recovery |
@@ -109,7 +110,7 @@ All passwords and the certificate baked into `testdata/Dockerfile.connect` are
 deliberately public **test fixtures**. Never deploy this fixture image in production.
 Its 30-day self-signed certificate is regenerated when its image is rebuilt;
 rebuild without cache if an old local fixture image's certificate has expired.
-Tests trust this certificate explicitly; they never disable TLS verification.
+Tests normally trust this certificate explicitly. `TLSVerification` deliberately removes trust or uses a hostname absent from the certificate to check rejection and explicit verification bypass; its strict control cluster must continue rejecting the certificate.
 
 The suite uses one broker and one worker per independent cluster. It does not
 claim coverage of multi-broker durability, same-cluster multi-worker rebalances,

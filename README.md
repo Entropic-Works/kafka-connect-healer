@@ -190,7 +190,9 @@ Application settings live in `internal/config`; cluster configuration lives in `
 production:
   host: connect.production.svc
   port: "8083"
-  https: true
+  tls:
+    https: true
+    insecureSkipVerify: false
   authConfig:
     enabled: true
 staging:
@@ -210,7 +212,11 @@ production:
     password: replace-me
 ```
 
-Cluster Basic Auth requires a nonblank username without a colon and a nonempty password. Invalid authentication settings fail startup; authentication is never silently disabled. HTTP is allowed with authentication enabled, but credentials are sent without transport encryption. The application logs an explicit warning with the cluster name and endpoint when such a cluster starts or its definition changes; credentials are never included in the warning. Use `https: true` or protect the connection through your deployment's network infrastructure. All clusters share the application's polling behavior, request timeout, and logging policy, while maintaining independent restart backoff history. Each cluster reuses one HTTP client for status and restart requests; timeout updates apply between polling cycles without replacing that client.
+Cluster Basic Auth requires a nonblank username without a colon and a nonempty password. Invalid authentication settings fail startup; authentication is never silently disabled. HTTP is allowed with authentication enabled, but credentials are sent without transport encryption. The application logs an explicit warning with the cluster name and endpoint when such a cluster starts or its definition changes; credentials are never included in the warning. Use `tls.https: true` or protect the connection through your deployment's network infrastructure. All clusters share the application's polling behavior, request timeout, and logging policy, while maintaining independent restart backoff history. Each cluster reuses one HTTP client for status and restart requests; timeout updates apply between polling cycles without replacing that client.
+
+TLS settings belong to each cluster's `tls` mapping. With `tls.https: true`, certificate-chain and hostname verification are enabled by default using the system trust store. Setting `tls.insecureSkipVerify: true` keeps HTTPS encryption but disables both checks, leaving the server's identity unverified. The application logs an explicit warning with the cluster name and endpoint once when that definition is applied. `insecureSkipVerify: true` requires `tls.https: true`; otherwise startup or the cluster update is rejected. Each cluster owns its transport and TLS policy, and stopping or replacing its poller closes its idle connections.
+
+PUT replaces the complete cluster definition, so omitting `tls.insecureSkipVerify` restores certificate verification.
 
 Clusters configured with the same literal endpoint generate a startup warning but remain enabled. The comparison accounts for hostname casing, a trailing DNS dot, equivalent IPv6 spellings, and leading zeros in ports; it does not resolve DNS aliases or discover whether different endpoints belong to the same Kafka Connect cluster. Duplicate pollers maintain separate backoff histories and may issue duplicate restart requests. Warnings never include authentication credentials.
 
@@ -220,7 +226,8 @@ The available settings and defaults are:
 | --- | --- |
 | `<cluster>.host` | `localhost` |
 | `<cluster>.port` | `"8083"` |
-| `<cluster>.https` | `false` |
+| `<cluster>.tls.https` | `false` |
+| `<cluster>.tls.insecureSkipVerify` | `false` |
 | `<cluster>.authConfig.enabled` | `false` |
 | `<cluster>.authConfig.username` | empty string |
 | `<cluster>.authConfig.password` | empty string |
@@ -319,7 +326,7 @@ Creating a cluster returns `201 Created` with a `Location` header. Replacing a c
 ```sh
 curl -X PUT http://localhost:8080/clusters/production \
   -H 'Content-Type: application/json' \
-  -d '{"host":"connect.production.svc","port":"8083","https":false,"authConfig":{"enabled":false}}'
+  -d '{"host":"connect.production.svc","port":"8083","tls":{"https":false},"authConfig":{"enabled":false}}'
 ```
 
 `DELETE /clusters/{name}` cancels that cluster's poller, waits for it to exit, and removes its definition before returning `204`. An unknown name returns `404`. Removal stops future polling but cannot undo restart requests already accepted by Kafka Connect. PUT and DELETE return `503` when the application is shutting down. New pollers use the application's lifetime context, so completing an API request does not stop them.

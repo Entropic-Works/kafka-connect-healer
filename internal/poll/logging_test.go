@@ -20,17 +20,20 @@ import (
 	"github.com/Entropic-Works/kafka-connect-healer/internal/poll/status"
 )
 
-func TestClusterManagerWarnsAboutAuthenticatedHTTPWhenApplied(t *testing.T) {
+func TestClusterManagerWarnsAboutInsecureConnectionsWhenApplied(t *testing.T) {
 	for _, test := range []struct {
-		name     string
-		https    bool
-		auth     bool
-		warnings int
+		name       string
+		https      bool
+		auth       bool
+		skipVerify bool
+		warnings   int
 	}{
 		{name: "authenticated HTTP", auth: true, warnings: 2},
 		{name: "authenticated HTTPS", https: true, auth: true},
 		{name: "unauthenticated HTTP"},
 		{name: "unauthenticated HTTPS", https: true},
+		{name: "unverified authenticated HTTPS", https: true, auth: true, skipVerify: true, warnings: 2},
+		{name: "unverified unauthenticated HTTPS", https: true, skipVerify: true, warnings: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var output bytes.Buffer
@@ -38,7 +41,7 @@ func TestClusterManagerWarnsAboutAuthenticatedHTTPWhenApplied(t *testing.T) {
 			slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{Level: slog.LevelWarn})))
 			t.Cleanup(func() { slog.SetDefault(previous) })
 			cluster := connectcluster.DefaultConfiguration()
-			cluster.HTTPS = test.https
+			cluster.TLS = connectcluster.TLSConfiguration{HTTPS: test.https, InsecureSkipVerify: test.skipVerify}
 			cluster.AuthConfig = connectcluster.AuthConfiguration{Enabled: test.auth, Username: "private-user", Password: "private-password"}
 			configuration := config.DefaultConfiguration()
 			configuration.PollingBehavior.Interval = config.Duration(time.Hour)
@@ -81,9 +84,15 @@ func TestClusterManagerWarnsAboutAuthenticatedHTTPWhenApplied(t *testing.T) {
 				if i == 1 {
 					host = cluster.Host
 				}
+				scheme := "http"
+				message := "Connect Basic Auth is enabled over HTTP; credentials are sent without transport encryption"
+				if test.skipVerify {
+					scheme = "https"
+					message = "Connect TLS certificate verification is disabled; server certificate chain and hostname are not verified"
+				}
 				if event["level"] != "WARN" || event["connect_cluster"] != "production" ||
-					event["endpoint"] != "http://"+net.JoinHostPort(host, cluster.Port) ||
-					event["msg"] != "Connect Basic Auth is enabled over HTTP; credentials are sent without transport encryption" {
+					event["endpoint"] != scheme+"://"+net.JoinHostPort(host, cluster.Port) ||
+					event["msg"] != message {
 					t.Fatalf("unexpected warning: %v", event)
 				}
 			}

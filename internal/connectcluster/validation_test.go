@@ -52,16 +52,18 @@ func TestValidatePortAndAuthentication(t *testing.T) {
 		{Configuration{Host: "localhost", Port: "0008083"}, ""},
 		{Configuration{Host: "localhost", Port: "1"}, ""},
 		{Configuration{Host: "localhost", Port: "65535"}, ""},
+		{Configuration{Host: "localhost", Port: "8083", TLS: TLSConfiguration{InsecureSkipVerify: true}}, "tls.insecureSkipVerify:"},
+		{Configuration{Host: "localhost", Port: "8443", TLS: TLSConfiguration{HTTPS: true, InsecureSkipVerify: true}}, ""},
 		{Configuration{Host: "localhost", Port: "8083", AuthConfig: AuthConfiguration{Enabled: true}}, "authConfig.username:"},
 		{Configuration{Host: "localhost", Port: "8083", AuthConfig: AuthConfiguration{Enabled: true, Username: "user"}}, "authConfig.password:"},
 		{Configuration{Host: "localhost", Port: "8083", AuthConfig: AuthConfiguration{Enabled: true, Username: "team:user", Password: "secret"}}, "authConfig.username:"},
 		{Configuration{Host: "localhost", Port: "8083", AuthConfig: AuthConfiguration{Enabled: true, Username: " ", Password: "secret"}}, "authConfig.username:"},
 		{Configuration{Host: "localhost", Port: "8083", AuthConfig: AuthConfiguration{Enabled: true, Username: "user", Password: "secret"}}, ""},
-		{Configuration{Host: "localhost", Port: "8083", HTTPS: true, AuthConfig: AuthConfiguration{Enabled: true, Password: "secret"}}, "authConfig.username:"},
-		{Configuration{Host: "localhost", Port: "8083", HTTPS: true, AuthConfig: AuthConfiguration{Enabled: true, Username: "user"}}, "authConfig.password:"},
-		{Configuration{Host: "localhost", Port: "8083", HTTPS: true, AuthConfig: AuthConfiguration{Enabled: true, Username: "team:user", Password: "secret"}}, "authConfig.username:"},
-		{Configuration{Host: "localhost", Port: "8083", HTTPS: true, AuthConfig: AuthConfiguration{Enabled: true, Username: " ", Password: "secret"}}, "authConfig.username:"},
-		{Configuration{Host: "localhost", Port: "8083", HTTPS: true, AuthConfig: AuthConfiguration{Enabled: true, Username: "user", Password: "secret"}}, ""},
+		{Configuration{Host: "localhost", Port: "8083", TLS: TLSConfiguration{HTTPS: true}, AuthConfig: AuthConfiguration{Enabled: true, Password: "secret"}}, "authConfig.username:"},
+		{Configuration{Host: "localhost", Port: "8083", TLS: TLSConfiguration{HTTPS: true}, AuthConfig: AuthConfiguration{Enabled: true, Username: "user"}}, "authConfig.password:"},
+		{Configuration{Host: "localhost", Port: "8083", TLS: TLSConfiguration{HTTPS: true}, AuthConfig: AuthConfiguration{Enabled: true, Username: "team:user", Password: "secret"}}, "authConfig.username:"},
+		{Configuration{Host: "localhost", Port: "8083", TLS: TLSConfiguration{HTTPS: true}, AuthConfig: AuthConfiguration{Enabled: true, Username: " ", Password: "secret"}}, "authConfig.username:"},
+		{Configuration{Host: "localhost", Port: "8083", TLS: TLSConfiguration{HTTPS: true}, AuthConfig: AuthConfiguration{Enabled: true, Username: "user", Password: "secret"}}, ""},
 	} {
 		err := ValidateConfiguration(test.configuration)
 		if test.want == "" {

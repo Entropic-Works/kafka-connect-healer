@@ -21,6 +21,9 @@ func ValidateConfiguration(configuration Configuration) error {
 	}) {
 		return fmt.Errorf("port: Connect port must contain only decimal digits and be between 1 and 65535")
 	}
+	if configuration.TLS.InsecureSkipVerify && !configuration.TLS.HTTPS {
+		return fmt.Errorf("tls.insecureSkipVerify: requires tls.https to be true")
+	}
 	if configuration.AuthConfig.Enabled {
 		if strings.TrimSpace(configuration.AuthConfig.Username) == "" || strings.Contains(configuration.AuthConfig.Username, ":") {
 			return fmt.Errorf("authConfig.username: Basic Auth requires a nonblank username without a colon")

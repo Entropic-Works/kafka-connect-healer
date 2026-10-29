@@ -85,6 +85,8 @@ func testStartup(t *testing.T, s *suite) {
 			{"invalid_cluster", "{}", "test:\n  host: https://connect\n", []string{"--connect-clusters=/config/clusters.yaml"}},
 			{"http_auth_missing_username", "{}", "test:\n  authConfig: {enabled: true, password: startup-test-only}\n", []string{"--connect-clusters=/config/clusters.yaml"}},
 			{"http_auth_missing_password", "{}", "test:\n  authConfig: {enabled: true, username: connect-test}\n", []string{"--connect-clusters=/config/clusters.yaml"}},
+			{"skip_verification_without_https", "{}", "test: {tls: {insecureSkipVerify: true}}", []string{"--connect-clusters=/config/clusters.yaml"}},
+			{"unknown_https_field", "{}", "test: {https: true}", []string{"--connect-clusters=/config/clusters.yaml"}},
 			{"missing_cluster_secret", "{}", "{}", []string{"--connect-clusters-secret-config=/config/missing.yaml"}},
 			{"positional_argument", "{}", "{}", []string{"unexpected"}},
 		} {

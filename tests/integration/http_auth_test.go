@@ -17,7 +17,7 @@ func testHTTPAuthentication(t *testing.T, s *suite) {
 	f := s.connector(t, s.secondary, 1)
 	configuration := strings.Replace(applicationYAML, "restartFailedTasks: false", "restartFailedTasks: true", 1)
 	app := s.startHealer(t, "http-auth", configuration,
-		"test:\n  host: connect-secondary\n  port: \"8083\"\n  https: false\n  authConfig:\n    enabled: true\n    username: "+connectUsername+"\n",
+		"test:\n  host: connect-secondary\n  port: \"8083\"\n  tls:\n    https: false\n  authConfig:\n    enabled: true\n    username: "+connectUsername+"\n",
 		testcontainers.WithFiles(file("/config/cluster-secret.yaml", "test:\n  authConfig:\n    password: "+connectPassword+"\n")),
 		testcontainers.WithCmd("--config=/config/application.yaml", "--connect-clusters=/config/clusters.yaml", "--connect-clusters-secret-config=/config/cluster-secret.yaml"))
 	address := endpoint(t, app, "8080/tcp", "http")
@@ -35,7 +35,7 @@ func testHTTPAuthentication(t *testing.T, s *suite) {
 			port = "8443"
 		}
 		data, err := json.Marshal(map[string]any{
-			"host": "connect-secondary", "port": port, "https": https,
+			"host": "connect-secondary", "port": port, "tls": map[string]any{"https": https},
 			"authConfig": map[string]any{"enabled": auth, "username": username, "password": password},
 		})
 		if err != nil {

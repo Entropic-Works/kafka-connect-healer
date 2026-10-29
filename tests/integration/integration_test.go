@@ -10,6 +10,7 @@ func TestIntegration(t *testing.T) {
 	s := newSuite(t)
 	t.Run("API", func(t *testing.T) { testAPI(t, s) })
 	t.Run("HTTPAuthentication", func(t *testing.T) { testHTTPAuthentication(t, s) })
+	t.Run("TLSVerification", func(t *testing.T) { testTLSVerification(t, s) })
 	t.Run("KafkaAndTLS", func(t *testing.T) {
 		s.resetAfter(t)
 		code, _, _ := request(s.primary.client, "GET", s.primary.endpoint+"/connectors", nil, "", "", "")

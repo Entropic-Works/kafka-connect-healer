@@ -45,7 +45,7 @@ isolate the pod's unauthenticated API from other pods: use network policy and en
 API Basic Auth via a Secret overlay before sharing access. Basic Auth requires TLS
 termination at a trusted proxy/Ingress when requests traverse an untrusted network.
 Kafka Connect Basic Auth also supports HTTP, with an explicit warning that credentials
-are sent without transport encryption. Use `https: true` or protect that connection
+are sent without transport encryption. Use `tls.https: true` or protect that connection
 through your deployment's network infrastructure.
 
 Kustomize generates a hashed ConfigMap name. Applying changes to either configuration
