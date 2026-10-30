@@ -12,12 +12,18 @@ import (
 )
 
 func testTLSVerification(t *testing.T, s *suite) {
+	// The container IP is absent from the certificate. Unlike an alternate DNS
+	// name, it does not send SNI that Connect's server rejects independently.
+	secondaryIP, err := s.secondary.container.ContainerIP(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range []struct {
 		name, host, failure string
 		trusted             bool
 	}{
 		{name: "UntrustedCertificate", host: "connect-secondary", failure: "certificate signed by unknown authority"},
-		{name: "HostnameMismatch", host: "connect-secondary-wrong-host", trusted: true, failure: "not connect-secondary-wrong-host"},
+		{name: "HostnameMismatch", host: secondaryIP, trusted: true, failure: "not " + secondaryIP},
 		{name: "TrustedCertificate", host: "connect-secondary", trusted: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

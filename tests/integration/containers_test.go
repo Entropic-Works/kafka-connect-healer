@@ -187,7 +187,7 @@ listeners.https.ssl.key.password=test-only-password
 offset.flush.interval.ms=1000
 `, alias)
 	options := []testcontainers.ContainerCustomizer{
-		network.WithNetwork([]string{alias, "wrong-host", alias + "-wrong-host"}, s.network),
+		network.WithNetwork([]string{alias, "wrong-host"}, s.network),
 		testcontainers.WithExposedPorts("8443/tcp"),
 		testcontainers.WithEnv(map[string]string{"KAFKA_OPTS": "-Djava.security.auth.login.config=/config/jaas.conf", "KAFKA_HEAP_OPTS": "-Xms256m -Xmx512m"}),
 		testcontainers.WithFiles(file("/config/worker.properties", properties), file("/config/credentials.properties", connectUsername+"="+connectPassword+"\n"),
