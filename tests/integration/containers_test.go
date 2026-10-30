@@ -147,7 +147,7 @@ func newSuite(t *testing.T) *suite {
 	)
 	execOK(t, s.broker, "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "broker:9092", "--create", "--topic", "healer-e2e-records", "--partitions", "1", "--replication-factor", "1")
 	s.primary = s.startWorker(t, "connect", true)
-	s.secondary = s.startWorker(t, "connect-secondary", false)
+	s.secondary = s.startWorker(t, "connect-secondary", true)
 	s.collector = s.startCollector(t)
 	s.healer = s.startHealer(t, "healer", applicationYAML+"telemetryConfig:\n  enabled: true\n", clustersYAML("8444"),
 		testcontainers.WithEnv(telemetryEnvironment("kafka-connect-healer-integration")))
@@ -187,7 +187,7 @@ listeners.https.ssl.key.password=test-only-password
 offset.flush.interval.ms=1000
 `, alias)
 	options := []testcontainers.ContainerCustomizer{
-		network.WithNetwork([]string{alias, "wrong-host"}, s.network),
+		network.WithNetwork([]string{alias, "wrong-host", alias + "-wrong-host"}, s.network),
 		testcontainers.WithExposedPorts("8443/tcp"),
 		testcontainers.WithEnv(map[string]string{"KAFKA_OPTS": "-Djava.security.auth.login.config=/config/jaas.conf", "KAFKA_HEAP_OPTS": "-Xms256m -Xmx512m"}),
 		testcontainers.WithFiles(file("/config/worker.properties", properties), file("/config/credentials.properties", connectUsername+"="+connectPassword+"\n"),

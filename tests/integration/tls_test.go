@@ -12,25 +12,21 @@ import (
 )
 
 func testTLSVerification(t *testing.T, s *suite) {
-	// The container IP is absent from the certificate. Unlike an alternate DNS
-	// name, it does not send SNI that Connect's server rejects independently.
-	secondaryIP, err := s.secondary.container.ContainerIP(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Use the TLS gateway to the real secondary worker. Connect's own HTTPS
+	// listener rejects mismatched HTTP Host values even after TLS succeeds.
 	for _, test := range []struct {
 		name, host, failure string
 		trusted             bool
 	}{
 		{name: "UntrustedCertificate", host: "connect-secondary", failure: "certificate signed by unknown authority"},
-		{name: "HostnameMismatch", host: secondaryIP, trusted: true, failure: "not " + secondaryIP},
+		{name: "HostnameMismatch", host: "connect-secondary-wrong-host", trusted: true, failure: "not connect-secondary-wrong-host"},
 		{name: "TrustedCertificate", host: "connect-secondary", trusted: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// The primary suite poller cannot remediate this secondary cluster.
 			f := s.connector(t, s.secondary, 1)
 			configuration := strings.Replace(applicationYAML, "restartFailedTasks: false", "restartFailedTasks: true", 1)
-			clusters := "test:\n  host: " + test.host + "\n  port: \"8443\"\n  tls:\n    https: true\n  authConfig:\n    enabled: true\n    username: " + connectUsername + "\n    password: " + connectPassword + "\n"
+			clusters := "test:\n  host: " + test.host + "\n  port: \"8444\"\n  tls:\n    https: true\n  authConfig:\n    enabled: true\n    username: " + connectUsername + "\n    password: " + connectPassword + "\n"
 			var options []testcontainers.ContainerCustomizer
 			if test.failure != "" {
 				options = append(options,
@@ -60,7 +56,7 @@ func testTLSVerification(t *testing.T, s *suite) {
 					t.Fatalf("TLS verification warnings = %d, want %d", got, want)
 				}
 				for _, line := range strings.Split(output, "\n") {
-					if strings.Contains(line, warning) && (!matchingLog(line, "level=WARN", "connect_cluster=test", "endpoint=https://"+test.host+":8443") || strings.Contains(line, connectUsername)) {
+					if strings.Contains(line, warning) && (!matchingLog(line, "level=WARN", "connect_cluster=test", "endpoint=https://"+test.host+":8444") || strings.Contains(line, connectUsername)) {
 						t.Fatal("TLS warning lost cluster/endpoint context or exposed the username")
 					}
 				}
@@ -91,8 +87,8 @@ func testTLSVerification(t *testing.T, s *suite) {
 
 			// A second cluster must still reject the same certificate while the
 			// first cluster polls successfully with its explicit bypass.
-			strict := clusterJSON(test.host, "8443", connectPassword)
-			bypass := clusterTLSJSON(test.host, "8443", connectPassword, true)
+			strict := clusterJSON(test.host, "8444", connectPassword)
+			bypass := clusterTLSJSON(test.host, "8444", connectPassword, true)
 			apiRequest("PUT", "/clusters/verified", strict, 201)
 			eventually(t, 10*time.Second, "strict cluster remains isolated", func() bool {
 				return matchingLog(logs(t, app), "connect_cluster=verified", test.failure)
