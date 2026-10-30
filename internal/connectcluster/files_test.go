@@ -23,7 +23,8 @@ func TestLoadFilesWarnsAboutDuplicateEndpoints(t *testing.T) {
 		{name: "overlay introduces duplicate", base: "production: {host: production.local}\nstaging: {host: staging.local}", overlay: "staging: {host: production.local}", wantWarning: true},
 		{name: "different hosts", base: "production: {host: production.local}\nstaging: {host: staging.local}"},
 		{name: "different ports", base: "production: {}\nstaging: {port: '8084'}"},
-		{name: "different schemes", base: "production: {}\nstaging: {https: true}"},
+		{name: "different schemes", base: "production: {}\nstaging: {tls: {https: true}}"},
+		{name: "different TLS policies share an endpoint", base: "production: {tls: {https: true, insecureSkipVerify: true}}\nstaging: {tls: {https: true}}", wantWarning: true},
 		{name: "empty clusters", base: "{}"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -54,7 +55,7 @@ func TestLoadFilesDuplicateWarningOmitsCredentials(t *testing.T) {
 	previousLogger := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(previousLogger) })
-	base := writeConfigFile(t, "production:\n  https: true\n  authConfig: {enabled: true, username: private-user, password: private-password}\nstaging:\n  https: true")
+	base := writeConfigFile(t, "production:\n  tls:\n    https: true\n  authConfig: {enabled: true, username: private-user, password: private-password}\nstaging:\n  tls:\n    https: true")
 	if _, err := LoadFiles(base, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -83,6 +84,29 @@ func TestLoadFilesWithoutBaseUsesDefaultCluster(t *testing.T) {
 	}
 }
 
+func TestLoadFilesTLSOverlays(t *testing.T) {
+	for _, test := range []struct {
+		name, base, overlay string
+		want                TLSConfiguration
+	}{
+		{name: "nested settings", base: "production: {tls: {https: true, insecureSkipVerify: true}}", want: TLSConfiguration{HTTPS: true, InsecureSkipVerify: true}},
+		{name: "overlay enables bypass", base: "production: {tls: {https: true}}", overlay: "production: {tls: {insecureSkipVerify: true}}", want: TLSConfiguration{HTTPS: true, InsecureSkipVerify: true}},
+		{name: "overlay restores verification", base: "production: {tls: {https: true, insecureSkipVerify: true}}", overlay: "production: {tls: {insecureSkipVerify: false}}", want: TLSConfiguration{HTTPS: true}},
+		{name: "empty nested overlay", base: "production: {tls: {https: true, insecureSkipVerify: true}}", overlay: "production: {tls: {}}", want: TLSConfiguration{HTTPS: true, InsecureSkipVerify: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			overlay := ""
+			if test.overlay != "" {
+				overlay = writeConfigFile(t, test.overlay)
+			}
+			clusters, err := LoadFiles(writeConfigFile(t, test.base), overlay)
+			if err != nil || clusters["production"].TLS != test.want {
+				t.Fatalf("clusters = %+v, error = %v; want TLS %+v", clusters, err, test.want)
+			}
+		})
+	}
+}
+
 func TestLoadFilesOverlayWithoutBase(t *testing.T) {
 	overlay := writeConfigFile(t, "default:\n  host: connect.local\nstaging: {}")
 	got, err := LoadFiles("", overlay)
@@ -105,7 +129,8 @@ func TestLoadFilesDefaultsAndPartialOverlay(t *testing.T) {
 production:
   host: connect.production.svc
   port: "8443"
-  https: true
+  tls:
+    https: true
   authConfig:
     enabled: true
     username: base-user
@@ -123,7 +148,7 @@ production:
 	}
 	want := map[string]Configuration{
 		"production": {
-			Host: "connect.production.svc", Port: "8443", HTTPS: true,
+			Host: "connect.production.svc", Port: "8443", TLS: TLSConfiguration{HTTPS: true},
 			AuthConfig: AuthConfiguration{Enabled: true, Username: "secret-user", Password: "secret-password"},
 		},
 		"development": DefaultConfiguration(),
@@ -133,6 +158,22 @@ production:
 	}
 	if _, err := LoadFiles(base, ""); err == nil || !strings.Contains(err.Error(), `cluster "production": authConfig.password:`) {
 		t.Fatalf("missing credentials error = %v", err)
+	}
+}
+
+func TestLoadFilesAllowsAuthenticatedHTTPWithSecretOverlay(t *testing.T) {
+	base := writeConfigFile(t, "production:\n  host: connect.production.svc\n  authConfig:\n    enabled: true\n    username: connect-user\n")
+	overlay := writeConfigFile(t, "production:\n  authConfig:\n    password: connect-password\n")
+	clusters, err := LoadFiles(base, overlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Configuration{
+		Host: "connect.production.svc", Port: "8083",
+		AuthConfig: AuthConfiguration{Enabled: true, Username: "connect-user", Password: "connect-password"},
+	}
+	if len(clusters) != 1 || clusters["production"] != want {
+		t.Fatal("HTTP cluster did not retain merged authentication and endpoint defaults")
 	}
 }
 
@@ -155,8 +196,8 @@ func TestLoadFilesClusterMembershipAndEmptyMappings(t *testing.T) {
 }
 
 func TestLoadFilesOverlayCanExplicitlyClearValues(t *testing.T) {
-	base := writeConfigFile(t, "production:\n  https: true\n  authConfig:\n    enabled: true\n    username: user\n    password: password")
-	overlay := writeConfigFile(t, "production:\n  https: false\n  authConfig:\n    enabled: false\n    username: \"\"\n    password: \"\"")
+	base := writeConfigFile(t, "production:\n  tls:\n    https: true\n  authConfig:\n    enabled: true\n    username: user\n    password: password")
+	overlay := writeConfigFile(t, "production:\n  tls:\n    https: false\n  authConfig:\n    enabled: false\n    username: \"\"\n    password: \"\"")
 	got, err := LoadFiles(base, overlay)
 	if err != nil {
 		t.Fatal(err)
@@ -173,9 +214,18 @@ func TestLoadFilesRejectsInvalidYAMLInEitherFile(t *testing.T) {
 		"production: {}\nproduction: {}",
 		"production:\n  host: first\n  host: second",
 		"production:\n  authConfig:\n    password: first\n    password: second",
-		"production:\n  host: null", "production:\n  https:",
+		"production:\n  host: null", "production:\n  tls:\n    https:",
 		"production:\n  typo: true", "production:\n  authConfig:\n    typo: true",
-		"production:\n  https: perhaps",
+		"production:\n  tls:\n    https: perhaps",
+		"production: {tls: null}", "production: {tls: []}",
+		"production: {tls: {https: null}}", "production: {tls: {insecureSkipVerify: null}}",
+		"production: {tls: {https: true, https: false}}",
+		"production: {tls: {https: true, insecureSkipVerify: true, insecureSkipVerify: false}}",
+		"production: {tls: {insecureSkipVerify: true}}",
+		"production: {https: true}", "production: {https: false}",
+		"production: {tls: {https: true, caBundlePath: unsupported}}",
+		"production: {tls: {https: true, clientCertPath: unsupported}}",
+		"production: {tls: {https: true, clientKeyPath: unsupported}}",
 		"production:\n  host: &host connect\n  port: *host",
 		"production:\n  <<: {host: connect}", "1: {}",
 	} {
@@ -196,7 +246,7 @@ func TestLoadFilesErrorsDoNotExposeCredentials(t *testing.T) {
 	for _, contents := range []string{
 		"production:\n  authConfig:\n    password: [" + sensitive + "]",
 		"production:\n  authConfig:\n    password: first\n    password: " + sensitive,
-		"production:\n  https: " + sensitive,
+		"production:\n  tls:\n    https: " + sensitive,
 		"production:\n  host: " + sensitive + "/invalid",
 	} {
 		invalid := writeConfigFile(t, contents)

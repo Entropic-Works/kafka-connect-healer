@@ -144,7 +144,7 @@ See [Tests](#tests) for pre-deployment checks.
 ## Docker
 
 Release images are published to `ghcr.io/entropic-works/kafka-connect-healer` on GitHub Container Registry (GHCR)
-for Linux amd64 and arm64. Use an explicit published version tag, such as `0.0.4`.
+for Linux amd64 and arm64. Use an explicit published version tag, such as `0.0.5`.
 
 Build the image:
 
@@ -190,7 +190,9 @@ Application settings live in `internal/config`; cluster configuration lives in `
 production:
   host: connect.production.svc
   port: "8083"
-  https: true
+  tls:
+    https: true
+    insecureSkipVerify: false
   authConfig:
     enabled: true
 staging:
@@ -210,7 +212,13 @@ production:
     password: replace-me
 ```
 
-Cluster Basic Auth requires `https: true`, a nonblank username without a colon, and a nonempty password. Invalid combinations fail startup; authentication is never silently disabled. All clusters share the application's polling behavior, request timeout, and logging policy, while maintaining independent restart backoff history. Each cluster reuses one HTTP client for status and restart requests; timeout updates apply between polling cycles without replacing that client.
+Cluster Basic Auth requires a nonblank username without a colon and a nonempty password. Invalid authentication settings fail startup; authentication is never silently disabled. HTTP is allowed with authentication enabled, but credentials are sent without transport encryption. The application logs an explicit warning with the cluster name and endpoint when such a cluster starts or its definition changes; credentials are never included in the warning. Use `tls.https: true` or protect the connection through your deployment's network infrastructure. All clusters share the application's polling behavior, request timeout, and logging policy, while maintaining independent restart backoff history. Each cluster reuses one HTTP client for status and restart requests; timeout updates apply between polling cycles without replacing that client.
+
+TLS settings belong to each cluster's `tls` mapping. With `tls.https: true`, certificate-chain and hostname verification are enabled by default using the system trust store. Setting `tls.insecureSkipVerify: true` keeps HTTPS encryption but disables both checks, leaving the server's identity unverified. The application logs an explicit warning with the cluster name and endpoint once when that definition is applied. `insecureSkipVerify: true` requires `tls.https: true`; otherwise startup or the cluster update is rejected. Each cluster owns its transport and TLS policy, and stopping or replacing its poller closes its idle connections.
+
+PUT replaces the complete cluster definition, so omitting `tls.insecureSkipVerify` restores certificate verification.
+
+For Kafka Connect endpoints signed by a private corporate CA, mount a combined public and corporate CA bundle and set `SSL_CERT_FILE`. Keep certificate verification enabled. See [corporate CA deployment](docs/CORPORATE_CA.md) for Docker and Kubernetes examples.
 
 Clusters configured with the same literal endpoint generate a startup warning but remain enabled. The comparison accounts for hostname casing, a trailing DNS dot, equivalent IPv6 spellings, and leading zeros in ports; it does not resolve DNS aliases or discover whether different endpoints belong to the same Kafka Connect cluster. Duplicate pollers maintain separate backoff histories and may issue duplicate restart requests. Warnings never include authentication credentials.
 
@@ -220,7 +228,8 @@ The available settings and defaults are:
 | --- | --- |
 | `<cluster>.host` | `localhost` |
 | `<cluster>.port` | `"8083"` |
-| `<cluster>.https` | `false` |
+| `<cluster>.tls.https` | `false` |
+| `<cluster>.tls.insecureSkipVerify` | `false` |
 | `<cluster>.authConfig.enabled` | `false` |
 | `<cluster>.authConfig.username` | empty string |
 | `<cluster>.authConfig.password` | empty string |
@@ -312,14 +321,14 @@ Application updates affect only the running process. YAML files are never modifi
 
 `GET /clusters` returns a JSON object keyed by cluster name, omits passwords, and sets `Cache-Control: no-store`. An empty collection is returned as `{}`.
 
-`PUT /clusters/{name}` creates or replaces one complete cluster definition; it does not merge with the existing definition or apply YAML defaults. Host and port are required, and enabled authentication requires HTTPS and supplied credentials. Omitted fields become their zero values, including an omitted password; there is no password-preservation behavior. Invalid definitions leave the current poller untouched. PUT requires `Content-Type: application/json` and rejects unknown fields, duplicate keys, null values, invalid UTF-8, and malformed JSON. Bodies larger than 64 KiB return `413`, unsupported content types return `415`, and body-read timeouts return `408`.
+`PUT /clusters/{name}` creates or replaces one complete cluster definition; it does not merge with the existing definition or apply YAML defaults. Host and port are required, and enabled authentication requires supplied credentials. Authenticated HTTP definitions are accepted with the same transport encryption warning described above. Omitted fields become their zero values, including an omitted password; there is no password-preservation behavior. Invalid definitions leave the current poller untouched. PUT requires `Content-Type: application/json` and rejects unknown fields, duplicate keys, null values, invalid UTF-8, and malformed JSON. Bodies larger than 64 KiB return `413`, unsupported content types return `415`, and body-read timeouts return `408`.
 
 Creating a cluster returns `201 Created` with a `Location` header. Replacing a cluster returns `204 No Content`: the old poller is canceled and awaited before its replacement starts with a new client and fresh backoff history. An identical definition returns `204` without replacing the poller or resetting its history. Other clusters are unchanged. Duplicate endpoints produce a warning but are allowed.
 
 ```sh
 curl -X PUT http://localhost:8080/clusters/production \
   -H 'Content-Type: application/json' \
-  -d '{"host":"connect.production.svc","port":"8083","https":false,"authConfig":{"enabled":false}}'
+  -d '{"host":"connect.production.svc","port":"8083","tls":{"https":false},"authConfig":{"enabled":false}}'
 ```
 
 `DELETE /clusters/{name}` cancels that cluster's poller, waits for it to exit, and removes its definition before returning `204`. An unknown name returns `404`. Removal stops future polling but cannot undo restart requests already accepted by Kafka Connect. PUT and DELETE return `503` when the application is shutting down. New pollers use the application's lifetime context, so completing an API request does not stop them.
@@ -471,6 +480,8 @@ precautions.
 Contributions target `dev`; maintainers promote reviewed changes through `staging`
 and `main`, the default and release branch. See [MAINTAINERS.md](MAINTAINERS.md), the
 [code of conduct](CODE_OF_CONDUCT.md), and [repository workflow](docs/REPOSITORY.md).
+For the exact maintainer commands and failure recovery, follow the
+[promotion runbook](docs/RELEASING.md#prepare-and-promote).
 
 ## Releases
 

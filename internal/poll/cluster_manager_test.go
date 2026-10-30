@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -69,6 +70,56 @@ func TestClusterManagerCreateNoOpAndInvalidReplacement(t *testing.T) {
 	case <-worker.done:
 		t.Fatal("no-op or invalid PUT stopped the current worker")
 	default:
+	}
+}
+
+func TestClusterManagerPollsAndRestartsOverAuthenticatedHTTP(t *testing.T) {
+	requests := make(chan string, 32)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, password, ok := r.BasicAuth()
+		if !ok || username != "connect-user" || password != "connect-password" {
+			t.Error("HTTP request did not include the configured Basic Auth credentials")
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		requests <- r.Method + " " + r.URL.RequestURI()
+		if r.Method == http.MethodGet {
+			io.WriteString(w, `{"source":{"status":{"name":"source","connector":{"state":"FAILED"}}}}`)
+		} else {
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	t.Cleanup(server.Close)
+	address, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration := config.DefaultConfiguration()
+	configuration.PollingBehavior.Interval = config.Duration(10 * time.Millisecond)
+	manager, err := NewClusterManager(t.Context(), config.NewManager(configuration), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	cluster := connectcluster.Configuration{
+		Host: address.Hostname(), Port: address.Port(),
+		AuthConfig: connectcluster.AuthConfiguration{Enabled: true, Username: "connect-user", Password: "connect-password"},
+	}
+	if _, err := manager.PutCluster("production", cluster); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"GET /connectors?expand=status", "POST /connectors/source/restart?includeTasks=true&onlyFailed=true", "GET /connectors?expand=status"} {
+		select {
+		case got := <-requests:
+			if got != want {
+				t.Fatalf("request = %q, want %q", got, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for %s", want)
+		}
+	}
+	if manager.GetClusters()["production"] != cluster {
+		t.Fatal("HTTP cluster authentication changed during polling")
 	}
 }
 

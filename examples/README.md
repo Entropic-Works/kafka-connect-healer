@@ -28,7 +28,7 @@ belong in separate, untracked Secret overlay files, not these examples. See the
 ## Kubernetes
 
 Edit `kubernetes/connect-clusters.yaml` to use your Kafka Connect Service hostname.
-The Deployment uses `ghcr.io/entropic-works/kafka-connect-healer:0.0.4`, with
+The Deployment uses `ghcr.io/entropic-works/kafka-connect-healer:0.0.5`, with
 unauthenticated health probes on port 8081.
 
 ```sh
@@ -44,7 +44,12 @@ No Service or Ingress is created. This does not
 isolate the pod's unauthenticated API from other pods: use network policy and enable
 API Basic Auth via a Secret overlay before sharing access. Basic Auth requires TLS
 termination at a trusted proxy/Ingress when requests traverse an untrusted network.
-Kafka Connect Basic Auth independently requires `https: true`.
+Kafka Connect Basic Auth also supports HTTP, with an explicit warning that credentials
+are sent without transport encryption. Use `tls.https: true` or protect that connection
+through your deployment's network infrastructure.
+
+For endpoints signed by a private corporate CA, follow the [corporate CA deployment
+guide](../docs/CORPORATE_CA.md) to mount a trust bundle while keeping TLS verification enabled.
 
 Kustomize generates a hashed ConfigMap name. Applying changes to either configuration
 file replaces the pod; one replica and `Recreate` avoid overlapping pollers during

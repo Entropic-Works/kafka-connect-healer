@@ -2,6 +2,7 @@ package requests
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"io"
 	"net"
@@ -22,9 +23,73 @@ func TestNewConnectAPICreatesIndependentClients(t *testing.T) {
 	if first.HTTPClient == second.HTTPClient {
 		t.Fatal("clusters share an HTTP client")
 	}
+	firstTransport := first.HTTPClient.Transport.(*http.Transport)
+	secondTransport := second.HTTPClient.Transport.(*http.Transport)
+	if firstTransport == secondTransport || firstTransport == http.DefaultTransport || firstTransport.TLSClientConfig == secondTransport.TLSClientConfig {
+		t.Fatal("clusters share a transport or TLS configuration")
+	}
+	firstTransport.TLSClientConfig.InsecureSkipVerify = true
+	if secondTransport.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("changing one cluster's TLS policy changed another cluster")
+	}
 	first.HTTPClient.Timeout = 3 * time.Second
 	if second.HTTPClient.Timeout != 2*time.Second {
 		t.Fatal("changing one cluster's timeout changed another cluster's client")
+	}
+}
+
+func TestConnectAPIVerifiesTLSUnlessExplicitlyDisabled(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	address, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name          string
+		trust         bool
+		wrongHostname bool
+		skipVerify    bool
+		wantError     bool
+	}{
+		{name: "untrusted certificate", wantError: true},
+		{name: "explicit bypass", skipVerify: true},
+		{name: "trusted certificate", trust: true},
+		{name: "wrong hostname", trust: true, wrongHostname: true, wantError: true},
+		{name: "explicit hostname bypass", trust: true, wrongHostname: true, skipVerify: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			connect := NewConnectAPI(connectcluster.Configuration{
+				Host: address.Hostname(), Port: address.Port(),
+				TLS: connectcluster.TLSConfiguration{HTTPS: true, InsecureSkipVerify: test.skipVerify},
+			}, time.Second)
+			t.Cleanup(connect.HTTPClient.CloseIdleConnections)
+			transport := connect.HTTPClient.Transport.(*http.Transport)
+			if test.trust {
+				roots := x509.NewCertPool()
+				roots.AddCert(server.Certificate())
+				transport.TLSClientConfig.RootCAs = roots
+			}
+			if test.wrongHostname {
+				transport.TLSClientConfig.ServerName = "wrong.example.test"
+			}
+			request, err := connect.NewRequest(t.Context(), http.MethodGet, connect.BaseURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := connect.HTTPClient.Do(request)
+			if response != nil {
+				response.Body.Close()
+			}
+			if (err != nil) != test.wantError {
+				t.Fatalf("request error = %v, want error = %t", err, test.wantError)
+			}
+			if !test.wantError && response.StatusCode != http.StatusNoContent {
+				t.Fatalf("unexpected status: %d", response.StatusCode)
+			}
+		})
 	}
 }
 
@@ -82,7 +147,7 @@ func TestNewConnectAPIBuildsBaseURL(t *testing.T) {
 		},
 		{
 			name:          "HTTPS",
-			configuration: connectcluster.Configuration{Host: "connect.example.test", Port: "8443", HTTPS: true},
+			configuration: connectcluster.Configuration{Host: "connect.example.test", Port: "8443", TLS: connectcluster.TLSConfiguration{HTTPS: true}},
 			wantURL:       "https://connect.example.test:8443",
 		},
 		{

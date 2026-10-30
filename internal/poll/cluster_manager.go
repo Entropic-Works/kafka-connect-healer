@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"sync"
 
@@ -144,6 +145,14 @@ func (manager *ClusterManager) Close() {
 }
 
 func (manager *ClusterManager) startCluster(name string, configuration connectcluster.Configuration) *clusterWorker {
+	if configuration.AuthConfig.Enabled && !configuration.TLS.HTTPS {
+		slog.Warn("Connect Basic Auth is enabled over HTTP; credentials are sent without transport encryption",
+			"connect_cluster", name, "endpoint", "http://"+net.JoinHostPort(configuration.Host, configuration.Port))
+	}
+	if configuration.TLS.HTTPS && configuration.TLS.InsecureSkipVerify {
+		slog.Warn("Connect TLS certificate verification is disabled; server certificate chain and hostname are not verified",
+			"connect_cluster", name, "endpoint", "https://"+net.JoinHostPort(configuration.Host, configuration.Port))
+	}
 	ctx, cancel := context.WithCancel(manager.applicationContext)
 	worker := &clusterWorker{configuration: configuration, cancel: cancel, done: make(chan struct{})}
 	poller := NewConnectClusterPoller(name, configuration)
