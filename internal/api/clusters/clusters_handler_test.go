@@ -36,7 +36,7 @@ func putRequest(body string) *http.Request {
 func TestGetClustersRedactsPasswordsWithoutChangingStoredValues(t *testing.T) {
 	handler, manager := newTestHandler(t)
 	configuration := connectcluster.DefaultConfiguration()
-	configuration.HTTPS = true
+	configuration.TLS = connectcluster.TLSConfiguration{HTTPS: true, InsecureSkipVerify: true}
 	configuration.AuthConfig = connectcluster.AuthConfiguration{Enabled: true, Username: "user", Password: "secret"}
 	if _, err := manager.PutCluster("production", configuration); err != nil {
 		t.Fatal(err)
@@ -54,6 +54,7 @@ func TestGetClustersRedactsPasswordsWithoutChangingStoredValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(definitions) != 1 || definitions["production"].AuthConfig.Password != "" ||
+		definitions["production"].TLS != configuration.TLS ||
 		strings.Contains(response.Body.String(), `"password"`) || strings.Contains(response.Body.String(), "secret") {
 		t.Fatal("GET exposed the cluster password")
 	}
@@ -74,11 +75,15 @@ func TestGetClustersReturnsEmptyObject(t *testing.T) {
 func TestPutClusterCreatesAndCompletelyReplacesDefinition(t *testing.T) {
 	handler, manager := newTestHandler(t)
 	response := httptest.NewRecorder()
-	request := putRequest(`{"host":"localhost","port":"8083","https":true,"authConfig":{"enabled":true,"username":"user","password":"secret"}}`)
+	request := putRequest(`{"host":"localhost","port":"8083","tls":{"https":false},"authConfig":{"enabled":true,"username":"user","password":"secret"}}`)
 	request.Header.Set("Content-Type", "application/json; charset=utf-8")
 	handler.PutCluster(response, request)
 	if response.Code != http.StatusCreated || response.Header().Get("Location") != "/clusters/production" {
 		t.Fatalf("create = %d, Location = %q, body = %s", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	created := manager.GetClusters()["production"]
+	if created.TLS.HTTPS || !created.AuthConfig.Enabled || created.AuthConfig.Username != "user" || created.AuthConfig.Password != "secret" {
+		t.Fatal("HTTP cluster did not retain enabled authentication and credentials")
 	}
 	response = httptest.NewRecorder()
 	handler.PutCluster(response, putRequest(`{"host":"replacement.local","port":"8084"}`))
@@ -88,6 +93,29 @@ func TestPutClusterCreatesAndCompletelyReplacesDefinition(t *testing.T) {
 	expected := connectcluster.Configuration{Host: "replacement.local", Port: "8084"}
 	if manager.GetClusters()["production"] != expected {
 		t.Fatal("PUT retained omitted values from the previous definition")
+	}
+}
+
+func TestPutClusterTLSSettingsAndVerificationReset(t *testing.T) {
+	handler, manager := newTestHandler(t)
+	for i, body := range []string{
+		`{"host":"connect.local","port":"8443","tls":{"https":true,"insecureSkipVerify":true}}`,
+		`{"host":"connect.local","port":"8443","tls":{"https":true,"insecureSkipVerify":false}}`,
+		`{"host":"connect.local","port":"8443","tls":{"https":true}}`,
+	} {
+		response := httptest.NewRecorder()
+		handler.PutCluster(response, putRequest(body))
+		wantStatus := http.StatusNoContent
+		if i == 0 {
+			wantStatus = http.StatusCreated
+		}
+		if response.Code != wantStatus {
+			t.Fatalf("PUT = %d, want %d: %s", response.Code, wantStatus, response.Body.String())
+		}
+		got := manager.GetClusters()["production"].TLS
+		if !got.HTTPS || got.InsecureSkipVerify != (i == 0) {
+			t.Fatalf("stored TLS settings = %+v", got)
+		}
 	}
 }
 
@@ -101,11 +129,24 @@ func TestPutClusterRejectsInvalidDefinitionsWithoutChangingStoredValues(t *testi
 		`{"host":"localhost","host":"other","port":"8083"}`,
 		`{"host":"localhost","\u0068ost":"other","port":"8083"}`,
 		`{"host":"localhost","port":"8083","https":null}`,
+		`{"host":"localhost","port":"8083","tls":null}`,
+		`{"host":"localhost","port":"8083","tls":{"https":null}}`,
+		`{"host":"localhost","port":"8083","tls":{"insecureSkipVerify":null}}`,
+		`{"host":"localhost","port":"8083","tls":{"insecureSkipVerify":true}}`,
+		`{"host":"localhost","port":"8083","tls":{"https":true,"insecureSkipVerify":"true"}}`,
+		`{"host":"localhost","port":"8083","tls":{"https":true,"insecureSkipVerify":true,"insecureSkipVerify":false}}`,
+		`{"host":"localhost","port":"8083","https":true}`,
+		`{"host":"localhost","port":"8083","https":false}`,
+		`{"host":"localhost","port":"8083","tls":{"https":true,"https":false}}`,
+		`{"host":"localhost","port":"8083","tls":{"https":true,"caBundlePath":"private-secret"}}`,
+		`{"host":"localhost","port":"8083","tls":{"https":true,"clientCertPath":"private-secret"}}`,
+		`{"host":"localhost","port":"8083","tls":{"https":true,"clientKeyPath":"private-secret"}}`,
 		`{"host":"localhost","port":"8083","authConfig":{"password":null}}`,
 		`{"host":"localhost","port":"8083","authConfig":{"password":[]}}`,
 		`{"host":"localhost","port":"8083","authConfig":{"password":"one","password":"two"}}`,
-		`{"host":"localhost","port":"8083","authConfig":{"enabled":true,"username":"user","password":"private-secret"}}`,
-		`{"host":"localhost","port":"8083","https":true,"authConfig":{"enabled":true,"username":"user"}}`,
+		`{"host":"localhost","port":"8083","authConfig":{"enabled":true,"password":"private-secret"}}`,
+		`{"host":"localhost","port":"8083","authConfig":{"enabled":true,"username":"user"}}`,
+		`{"host":"localhost","port":"8083","tls":{"https":true},"authConfig":{"enabled":true,"username":"user"}}`,
 		"{\"host\":\"\xff\",\"port\":\"8083\"}",
 	} {
 		t.Run(body, func(t *testing.T) {

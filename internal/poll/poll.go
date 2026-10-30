@@ -34,6 +34,7 @@ func NewConnectClusterPoller(name string, configuration connectcluster.Configura
 func (poller *ConnectClusterPoller) Poll(ctx context.Context, configurationManager *config.Manager) {
 	configuration, configurationUpdateChannel := configurationManager.ConfigurationSnapshot()
 	poller.connectClient = requests.NewConnectAPI(poller.clusterConfiguration, configuration.CommunicationConfig.RequestTimeout.Duration())
+	defer poller.connectClient.HTTPClient.CloseIdleConnections()
 	poller.backoffFilter = backoff.Filter{
 		BackoffConfig:   configuration.PollingBehavior.Backoff,
 		BackoffStatuses: map[string]backoff.Status{},

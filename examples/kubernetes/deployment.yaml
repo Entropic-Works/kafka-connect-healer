@@ -24,8 +24,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: healer
-          # Replace with a release tag that serves /livez and /readyz on port 8081.
-          image: ghcr.io/entropic-works/kafka-connect-healer:0.0.4
+          # Use 0.0.5 or newer for the nested cluster TLS configuration.
+          image: ghcr.io/entropic-works/kafka-connect-healer:0.0.5
           args:
             - --config=/config/application.yaml
             - --connect-clusters=/config/connect-clusters.yaml

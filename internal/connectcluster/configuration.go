@@ -1,6 +1,11 @@
 // Package connectcluster owns Kafka Connect cluster configuration.
 package connectcluster
 
+type TLSConfiguration struct {
+	HTTPS              bool `json:"https" yaml:"https"`
+	InsecureSkipVerify bool `json:"insecureSkipVerify" yaml:"insecureSkipVerify"`
+}
+
 type AuthConfiguration struct {
 	Enabled  bool   `json:"enabled" yaml:"enabled"`
 	Username string `json:"username" yaml:"username"`
@@ -12,7 +17,7 @@ type AuthConfiguration struct {
 type Configuration struct {
 	Host       string            `json:"host" yaml:"host"`
 	Port       string            `json:"port" yaml:"port"`
-	HTTPS      bool              `json:"https" yaml:"https"`
+	TLS        TLSConfiguration  `json:"tls" yaml:"tls"`
 	AuthConfig AuthConfiguration `json:"authConfig" yaml:"authConfig"`
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -18,6 +19,86 @@ import (
 	"github.com/Entropic-Works/kafka-connect-healer/internal/poll/actions"
 	"github.com/Entropic-Works/kafka-connect-healer/internal/poll/status"
 )
+
+func TestClusterManagerWarnsAboutInsecureConnectionsWhenApplied(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		https      bool
+		auth       bool
+		skipVerify bool
+		warnings   int
+	}{
+		{name: "authenticated HTTP", auth: true, warnings: 2},
+		{name: "authenticated HTTPS", https: true, auth: true},
+		{name: "unauthenticated HTTP"},
+		{name: "unauthenticated HTTPS", https: true},
+		{name: "unverified authenticated HTTPS", https: true, auth: true, skipVerify: true, warnings: 2},
+		{name: "unverified unauthenticated HTTPS", https: true, skipVerify: true, warnings: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var output bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{Level: slog.LevelWarn})))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			cluster := connectcluster.DefaultConfiguration()
+			cluster.TLS = connectcluster.TLSConfiguration{HTTPS: test.https, InsecureSkipVerify: test.skipVerify}
+			cluster.AuthConfig = connectcluster.AuthConfiguration{Enabled: test.auth, Username: "private-user", Password: "private-password"}
+			configuration := config.DefaultConfiguration()
+			configuration.PollingBehavior.Interval = config.Duration(time.Hour)
+			manager, err := NewClusterManager(t.Context(), config.NewManager(configuration), map[string]connectcluster.Configuration{"production": cluster})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(manager.Close)
+			if _, err := manager.PutCluster("production", cluster); err != nil {
+				t.Fatal(err)
+			}
+			invalid := cluster
+			invalid.Port = "0"
+			if _, err := manager.PutCluster("production", invalid); err == nil {
+				t.Fatal("invalid replacement was accepted")
+			}
+			other := connectcluster.DefaultConfiguration()
+			other.Host = "staging.local"
+			if _, err := manager.PutCluster("staging", other); err != nil {
+				t.Fatal(err)
+			}
+			cluster.Host = "replacement.local"
+			if _, err := manager.PutCluster("production", cluster); err != nil {
+				t.Fatal(err)
+			}
+			manager.Close()
+			if strings.Contains(output.String(), "private-user") || strings.Contains(output.String(), "private-password") {
+				t.Fatal("warning exposed credentials")
+			}
+			lines := strings.FieldsFunc(output.String(), func(character rune) bool { return character == '\n' })
+			if len(lines) != test.warnings {
+				t.Fatalf("warning count = %d, want %d; logs: %s", len(lines), test.warnings, output.String())
+			}
+			for i, line := range lines {
+				var event map[string]any
+				if err := json.Unmarshal([]byte(line), &event); err != nil {
+					t.Fatal(err)
+				}
+				host := "localhost"
+				if i == 1 {
+					host = cluster.Host
+				}
+				scheme := "http"
+				message := "Connect Basic Auth is enabled over HTTP; credentials are sent without transport encryption"
+				if test.skipVerify {
+					scheme = "https"
+					message = "Connect TLS certificate verification is disabled; server certificate chain and hostname are not verified"
+				}
+				if event["level"] != "WARN" || event["connect_cluster"] != "production" ||
+					event["endpoint"] != scheme+"://"+net.JoinHostPort(host, cluster.Port) ||
+					event["msg"] != message {
+					t.Fatalf("unexpected warning: %v", event)
+				}
+			}
+		})
+	}
+}
 
 func TestRecoveryLogsFollowObservedFailures(t *testing.T) {
 	snapshot := func(connectorState, taskState string) map[string]status.ConnectorStatus {

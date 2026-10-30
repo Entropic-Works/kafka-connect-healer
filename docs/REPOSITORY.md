@@ -31,17 +31,21 @@ when the PR, source commit, and base commit remain unchanged.
 
 ## Promotion and candidate snapshots
 
-Maintainers run **Actions → Promote** from `main`, choosing the target branch,
-planned stable version, and full source commit SHA. The source is `dev` for a
-promotion to `staging`, or `staging` for a promotion to `main`.
-
-The helper is also available through GitHub CLI:
+Maintainers run `scripts/promote.sh` locally using their GitHub CLI login. The
+source is `dev` for a promotion to `staging`, or `staging` for a promotion to `main`.
 
 ```sh
 GH_REPO=Entropic-Works/kafka-connect-healer \
 TARGET_BRANCH=staging RELEASE_VERSION=0.2.0 EXPECTED_SHA=FULL_REVIEWED_DEV_SHA \
 bash scripts/promote.sh
 ```
+
+Follow the [step-by-step promotion runbook](RELEASING.md#prepare-and-promote) for
+authentication, reviewing the source SHA, monitoring CI, merging, and recovering
+from failures. The optional **Actions → Promote** workflow uses `GITHUB_TOKEN`;
+it cannot create PRs while the repository's **Allow GitHub Actions to create and
+approve pull requests** setting is disabled. Use the local helper with your
+maintainer login in that configuration.
 
 Each promotion PR records `<!-- promotion-source: FULL_SHA -->` and its validation
 results. CI rejects a candidate whose source branch has advanced. An open
