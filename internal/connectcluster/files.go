@@ -50,7 +50,7 @@ func WarnDuplicateEndpoints(clusters map[string]Configuration) {
 		}
 		port, _ := strconv.Atoi(configuration.Port) // LoadFiles has already validated it.
 		scheme := "http"
-		if configuration.HTTPS {
+		if configuration.TLS.HTTPS {
 			scheme = "https"
 		}
 		endpoint := scheme + "://" + net.JoinHostPort(host, strconv.Itoa(port))

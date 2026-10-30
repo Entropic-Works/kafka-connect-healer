@@ -17,27 +17,140 @@ Prerelease tags produce GitHub prereleases.
 
 ## Prepare and promote
 
-1. Review the application behavior, dependency updates, and known
-   limitations. Verify `LICENSE`, `NOTICE`, and dependency notices are included.
-2. Merge contributions into `dev` through passing PRs, including the real
-   Kafka/Connect integration suite.
-3. Run **Actions → Promote** from `main`, choosing `staging`, the planned stable
-   release version, and the full reviewed `dev` commit SHA. Review the generated PR,
-   record release-specific validation, and merge using **Create a merge commit**.
-   Wait for full CI, including integration tests, and review the candidate and any
-   validation performed in your staging environment.
-   The branch itself does not deploy an environment.
-4. Record the resulting staging commit. For a stable release, run **Promote** with
-   target `main`, the same version, and that full staging SHA. Opening this PR
-   freezes staging. Review and merge `staging` → `main` in the same way.
-   This promotion reruns the full CI suite, including integration tests.
-   Fixes to candidates follow the same `dev` → `staging` path. Production hotfixes
-   also follow this path; do not bypass integration tests with a direct PR into main.
+Run these commands from the repository root with Bash, Git, GitHub CLI (`gh`),
+and `jq` installed. Use a clean checkout and a maintainer account with permission
+to create and merge PRs and create release tags. The examples use `0.0.5`; choose
+an unused version for subsequent releases.
 
-The workflow refuses stale source SHAs and preserves an existing matching PR's
-notes. Approve any Actions run approval requested by GitHub for a bot-created PR.
-The [repository workflow](REPOSITORY.md#promotion-and-candidate-snapshots) also
-documents local use of `scripts/promote.sh` with a maintainer's GitHub CLI login.
+### 1. Authenticate and merge the feature into dev
+
+```sh
+gh auth login --hostname github.com
+gh auth status
+export GH_REPO=Entropic-Works/kafka-connect-healer
+export RELEASE_VERSION=0.0.5
+git fetch origin --prune --tags
+git status --short
+```
+
+If already authenticated, skip `gh auth login`. Use `gh auth switch` when the
+active account is not the maintainer account. Resolve any local changes before
+switching branches. If `GH_TOKEN` or `GITHUB_TOKEN` is set in your shell, check
+that it represents the intended account; it can override the stored login.
+
+Open a feature PR targeting `dev`, using a description file for the behavior,
+configuration migration, limitations, and validation:
+
+```sh
+gh pr create --base dev --head YOUR_FEATURE_BRANCH \
+  --title 'Describe the user-facing change' --body-file /path/to/pr-description.md
+gh pr checks FEATURE_PR_NUMBER --watch --fail-fast
+gh pr view FEATURE_PR_NUMBER --json headRefOid,mergeStateStatus
+gh pr merge FEATURE_PR_NUMBER --merge --match-head-commit FULL_REVIEWED_FEATURE_SHA
+```
+
+Review the diff and resolve review conversations before merging. `dev` requires
+the feature branch to include the current `dev` base. If it is behind, merge
+`origin/dev` into the feature branch, resolve conflicts, push, and wait for fresh
+PR validation. A successful feature-push run does not satisfy `CI required`.
+
+### 2. Promote dev to staging
+
+Keep new feature merges into `dev` paused while preparing the candidate. Check
+that no `staging` → `main` PR is already open, then fetch and review the complete
+candidate, including earlier unreleased changes in `dev`:
+
+```sh
+gh pr list --state open --base main --head staging
+git fetch origin --prune --tags
+git switch --detach origin/main
+git log --oneline origin/staging..origin/dev
+git diff origin/staging...origin/dev
+dev_sha=$(git rev-parse origin/dev)
+GH_REPO="$GH_REPO" TARGET_BRANCH=staging RELEASE_VERSION="$RELEASE_VERSION" \
+  EXPECTED_SHA="$dev_sha" bash scripts/promote.sh
+```
+
+Use the PR number printed by the helper. It records the full reviewed source SHA
+in `<!-- promotion-source: FULL_SHA -->`; preserve that line in its description.
+Record configuration/API migration, known limitations, the tested Kafka/Connect
+versions, and any deployment-specific candidate validation. Wait for the full PR
+run before editing validation results in the description:
+
+```sh
+gh pr checks STAGING_PR_NUMBER --watch --fail-fast
+gh pr edit STAGING_PR_NUMBER --body-file /path/to/staging-pr-description.md
+gh pr checks STAGING_PR_NUMBER --watch --fail-fast
+gh pr merge STAGING_PR_NUMBER --merge --match-head-commit "$dev_sha"
+```
+
+Confirm `branch-policy`, `verify`, `container`, `integration`, and `CI required`
+pass. The integration job starts real Kafka and Connect containers. Review the
+candidate and record any staging-environment validation you performed; merging
+the branch itself does not deploy an environment. Never use `--delete-branch`
+on promotion PRs: `dev` and `staging` are permanent branches.
+
+### 3. Promote staging to main
+
+After the staging PR is merged, fetch and review the resulting **staging merge
+commit**. Its SHA differs from the `dev` SHA used in step 2:
+
+```sh
+git fetch origin --prune --tags
+git log --oneline origin/main..origin/staging
+git diff origin/main...origin/staging
+staging_sha=$(git rev-parse origin/staging)
+GH_REPO="$GH_REPO" TARGET_BRANCH=main RELEASE_VERSION="$RELEASE_VERSION" \
+  EXPECTED_SHA="$staging_sha" bash scripts/promote.sh
+gh pr checks MAIN_PR_NUMBER --watch --fail-fast
+gh pr edit MAIN_PR_NUMBER --body-file /path/to/main-pr-description.md
+gh pr checks MAIN_PR_NUMBER --watch --fail-fast
+gh pr merge MAIN_PR_NUMBER --merge --match-head-commit "$staging_sha"
+```
+
+Preserve the generated source marker, record validation, and resolve review
+conversations as in step 2. This PR runs fresh full CI, including integration.
+Opening it freezes staging: do not merge another `dev` → `staging` PR until this
+candidate is merged or closed. After merging, follow [Tag and publish](#tag-and-publish).
+
+### Optional: use the Actions UI
+
+**Actions → Promote → Run workflow** accepts branch **main**, target **staging**
+or **main**, the planned stable version, and the full reviewed source SHA. Use
+the `dev` SHA for target `staging` and the resulting `staging` SHA for target
+`main`. Then review, validate, and merge the generated PR as above.
+
+This workflow uses `GITHUB_TOKEN`. It requires the repository setting
+**Settings → Actions → General → Workflow permissions → Allow GitHub Actions to
+create and approve pull requests**, which is disabled in this repository at the
+time of writing. Prefer the local helper using your maintainer login; enabling
+that combined setting also grants PR approval capability and requires a separate
+repository-policy decision. See [GitHub's workflow-permissions documentation](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository#preventing-github-actions-from-creating-or-approving-pull-requests).
+If a bot-created PR's CI requests approval, approve its run in Actions and wait
+for all checks. See [GitHub's token event behavior](https://docs.github.com/en/actions/concepts/security/github_token).
+
+### If promotion or CI fails
+
+Inspect the failing job rather than rerunning the aggregate `CI required` job:
+
+```sh
+gh run list --workflow ci.yml --event pull_request --limit 10
+gh run view RUN_ID --log-failed
+```
+
+| Symptom | Action |
+| --- | --- |
+| Promote cannot create a PR with `GITHUB_TOKEN` | Use the local helper with your maintainer login. Check the Actions setting described above; do not weaken branch protections. |
+| `dev moved` or `staging moved` | Fetch and review the new source commit, then rerun the helper with its full SHA. |
+| Candidate changed or has no source snapshot | Close the stale candidate PR and prepare a replacement using the helper. Do not change its marker just to bypass the check. |
+| Staging is frozen | Complete or close the existing `staging` → `main` PR before preparing another staging candidate. |
+| `CI required` is expected | A branch-push run is insufficient. Check for a pending approval, merge conflict, or missing full PR run. If no run exists, close and reopen the unmerged PR using your maintainer login to trigger full validation. |
+| Metadata job reports no successful full CI for the current commits | Let an in-flight full PR run finish. If none succeeded for the current source and base, close and reopen the unmerged PR to trigger one, then update its description after it passes. Rerunning only the metadata job cannot replace full validation. |
+| Build, vulnerability, container, or integration check fails | Fix the cause through the feature → `dev` path and validate again. Integration diagnostics are attached to the failed run. For a confirmed transient failure, use `gh run rerun RUN_ID --failed`. |
+| PR into `dev` is behind | Merge current `origin/dev` into the feature branch and push; wait for new PR checks. |
+
+Do not bypass a failed required check or use a direct feature PR into staging or
+main. Candidate fixes follow the process below.
 
 ## Candidate fixes and hotfixes
 
@@ -74,9 +187,20 @@ Use a clean checkout and fetch current branches and tags:
 ```sh
 git fetch origin --tags
 git switch --detach origin/main
-git tag -a 0.1.0 -m 'Kafka Connect Healer 0.1.0'
-git push origin 0.1.0
+git tag -a "$RELEASE_VERSION" -m "Kafka Connect Healer $RELEASE_VERSION"
+git push origin "$RELEASE_VERSION"
+gh run list --workflow release.yml --branch "$RELEASE_VERSION" --limit 1
+gh run watch RELEASE_RUN_ID --exit-status
+gh release view "$RELEASE_VERSION"
 ```
+
+Set `GH_REPO` and `RELEASE_VERSION` as in step 1 if using a new shell. Confirm the
+version does not already exist with `git tag --list "$RELEASE_VERSION"` and
+`gh release list` before creating it. Review the fetched main commit and wait for
+its branch CI as well. The **Release** run must finish successfully, including
+both native image-verification jobs, before announcing the release. If tag
+creation is denied, use a maintainer account allowed by the release-tag rules;
+do not change or bypass the rules to publish.
 
 For a candidate, detach at `origin/staging` instead and use a prerelease tag.
 Tag only a reviewed commit containing the release workflow and all release inputs.
@@ -104,3 +228,30 @@ The release workflow verifies published images with the documented fixtures,
 including API access, health probes, authentication, and graceful shutdown.
 Verify any additional deployment-specific configuration in your environment.
 For reproducible deployments, use the recorded digest.
+
+## After release
+
+Supplement the generated release notes with user-facing changes and migration
+instructions, preserving the verified digests and validation link:
+
+```sh
+gh release view "$RELEASE_VERSION" --json body --jq .body > /path/to/release-notes.md
+# Edit that file, then publish the complete notes.
+gh release edit "$RELEASE_VERSION" --notes-file /path/to/release-notes.md
+```
+
+Close the completed feature issue with a link to the merged PR or release and
+record any proposals that were explicitly deferred. Delete obsolete feature
+branches only after checking their commits are included in `origin/main` and
+they have no open PR. Keep `dev`, `staging`, `main`, and release tags:
+
+```sh
+git fetch origin --prune --tags
+git branch -r --merged origin/main
+gh pr list --state open --head COMPLETED_FEATURE_BRANCH
+git merge-base --is-ancestor origin/COMPLETED_FEATURE_BRANCH origin/main
+git push origin --delete COMPLETED_FEATURE_BRANCH
+git switch --detach origin/main
+git branch -d COMPLETED_FEATURE_BRANCH
+git fetch origin --prune
+```

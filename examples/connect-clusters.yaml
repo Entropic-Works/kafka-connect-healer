@@ -2,6 +2,8 @@
 local:
   host: localhost
   port: "8083"
-  https: false
+  tls:
+    https: false
+    insecureSkipVerify: false
   authConfig:
     enabled: false

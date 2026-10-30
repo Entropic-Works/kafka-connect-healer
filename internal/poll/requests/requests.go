@@ -2,6 +2,7 @@ package requests
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"net/url"
@@ -18,15 +19,18 @@ type ConnectAPI struct {
 
 // NewConnectAPI creates the HTTP client used for one cluster's status and restart requests.
 func NewConnectAPI(configuration connectcluster.Configuration, requestTimeout time.Duration) ConnectAPI {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: configuration.TLS.InsecureSkipVerify}
 	client := &http.Client{
-		Timeout: requestTimeout,
+		Transport: transport,
+		Timeout:   requestTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
 
 	scheme := "http"
-	if configuration.HTTPS {
+	if configuration.TLS.HTTPS {
 		scheme = "https"
 	}
 
