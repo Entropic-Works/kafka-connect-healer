@@ -28,6 +28,7 @@ func main() {
 }
 
 func run() int {
+	logging.Configure()
 	configPath := flag.String("config", "", "path to optional application YAML configuration; omitted uses defaults")
 	secretPath := flag.String("secret-config", "", "path to an optional Secret YAML overlay")
 	clustersPath := flag.String("connect-clusters", "", "path to optional named Connect cluster configurations; omitted uses localhost:8083")
@@ -42,9 +43,7 @@ func run() int {
 		slog.Error("configuration loading failed", "error", err)
 		return 1
 	}
-	loggingLevel := new(slog.LevelVar)
-	loggingLevel.Set(startupConfiguration.LoggingConfig.Level)
-	logging.Configure(loggingLevel)
+	logging.SetLevel(startupConfiguration.LoggingConfig.Level)
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
@@ -129,21 +128,6 @@ func run() int {
 			healthLogger.Error("health serving failed; polling will continue", "error", err)
 		} else if errors.Is(err, http.ErrServerClosed) {
 			healthLogger.Debug("health listener stopped")
-		}
-	})
-
-	workers.Go(func() {
-		configuration, configurationUpdateChannel := configurationManager.ConfigurationSnapshot()
-		loggingLevel.Set(configuration.LoggingConfig.Level)
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-configurationUpdateChannel:
-				configuration, configurationUpdateChannel = configurationManager.ConfigurationSnapshot()
-				loggingLevel.Set(configuration.LoggingConfig.Level)
-			}
 		}
 	})
 

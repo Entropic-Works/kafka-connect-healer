@@ -241,6 +241,9 @@ func (s *suite) exportedLog(t *testing.T, service, message string, attributes ma
 
 func testTelemetry(t *testing.T, s *suite) {
 	s.resetAfter(t)
+	for _, message := range []string{"Application configuration initialized", "Connect clusters initialized"} {
+		eventually(t, 10*time.Second, "structured startup summary exported", func() bool { return s.exportedLog(t, "kafka-connect-healer-integration", message, nil) })
+	}
 	configuration, _ := s.apiRequest(t, "GET", "/config", "", 200)
 	var settings struct{ TelemetryConfig struct{ Enabled bool } }
 	if err := json.Unmarshal(configuration, &settings); err != nil || !settings.TelemetryConfig.Enabled {

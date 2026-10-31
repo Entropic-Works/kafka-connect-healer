@@ -5,8 +5,13 @@ import (
 	"os"
 )
 
-func Configure(level slog.Leveler) {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: level,
-	})))
+var consoleLevel slog.LevelVar
+
+func Configure() {
+	slog.SetDefault(slog.New(NewConsoleHandler(os.Stderr, &consoleLevel)))
+}
+
+// SetLevel applies configuration changes before their summary is logged.
+func SetLevel(level slog.Level) {
+	consoleLevel.Set(level)
 }
