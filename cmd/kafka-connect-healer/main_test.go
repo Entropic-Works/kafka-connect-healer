@@ -201,6 +201,11 @@ func TestMainStartupAndShutdown(t *testing.T) {
 			if !strings.Contains(logs.String(), test.want) || !strings.Contains(logs.String(), "Kafka Connect Healer stopped") {
 				t.Fatalf("missing expected startup or shutdown logs: %s", logs.String())
 			}
+			for _, header := range []string{" INFO  Application configuration initialized\n", " INFO  Connect clusters initialized\n"} {
+				if strings.Count(logs.String(), header) != 1 {
+					t.Errorf("expected one %q: %s", header, logs.String())
+				}
+			}
 			if test.name == "explicit empty clusters" && strings.Contains(logs.String(), "polling started") {
 				t.Fatalf("empty cluster file started a poller: %s", logs.String())
 			}
@@ -210,7 +215,7 @@ func TestMainStartupAndShutdown(t *testing.T) {
 				}
 			}
 			if test.telemetry {
-				for _, message := range []string{test.want, "starting API server", "starting health server", "API graceful shutdown completed", "health graceful shutdown completed", "Kafka Connect Healer stopped"} {
+				for _, message := range []string{test.want, "Application configuration initialized", "Connect clusters initialized", "starting API server", "starting health server", "API graceful shutdown completed", "health graceful shutdown completed", "Kafka Connect Healer stopped"} {
 					if _, ok := exportedLogs.Load(message); !ok {
 						t.Errorf("application log %q was not exported", message)
 					}

@@ -30,7 +30,7 @@ func testRequestFailures(t *testing.T, s *suite) {
 				t.Fatal("fault gateway allowed a real restart")
 			}
 			eventually(t, 5*time.Second, "correlated fourth failure outcome", func() bool {
-				return matchingLog(logs(t, s.healer), "level="+fault.level, "msg=\""+fault.message+"\"", "connect_cluster=test", "connector="+f.name, "task_id=0", "attempt_count=4", "status_code="+fault.code, "request_attempted=true", "attempted_at=", "duration=", "action=restart_task")
+				return matchingLog(logs(t, s.healer), " "+fault.level+" ", fault.message, "connect_cluster=test", "connector="+f.name, "task_id=0", "attempt_count=4", "status_code="+fault.code, "request_attempted=true", "attempted_at=", "duration=", "action=restart_task")
 			})
 			for _, request := range s.requests(t) {
 				if request.path == "/redirect-target" {
