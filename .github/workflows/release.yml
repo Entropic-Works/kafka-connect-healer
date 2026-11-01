@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   validate:
+    name: Validate release tag and source
     if: github.repository == 'Entropic-Works/kafka-connect-healer'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -27,6 +28,7 @@ jobs:
         run: bash scripts/check-release-tag.sh "$RELEASE_TAG" --check-branch
 
   checks:
+    name: Validate release candidate
     needs: validate
     permissions:
       contents: read
@@ -37,6 +39,7 @@ jobs:
       run-integration: true
 
   publish:
+    name: Publish multi-platform image
     permissions:
       contents: read
       packages: write
@@ -78,6 +81,7 @@ jobs:
           provenance: mode=max
 
   verify-images:
+    name: Verify published image (${{ matrix.architecture }})
     permissions:
       contents: read
     needs: publish
@@ -110,7 +114,11 @@ jobs:
           fi
           image=$(bash scripts/select-release-image.sh manifest.json "$IMAGE_INDEX" "$RELEASE_ARCH")
           docker pull --platform "linux/$RELEASE_ARCH" "$image"
-          [[ "$(docker image inspect --format '{{.Architecture}}' "$image")" == "$RELEASE_ARCH" ]]
+          actual_arch=$(docker image inspect --format '{{.Architecture}}' "$image")
+          if [[ "$actual_arch" != "$RELEASE_ARCH" ]]; then
+            echo "::error title=CI_IMAGE_ARCHITECTURE::Expected $RELEASE_ARCH, pulled $actual_arch. Inspect the published platform manifest."
+            exit 1
+          fi
           bash scripts/docker-smoke-test.sh "$image"
           jq -n --arg architecture "$RELEASE_ARCH" --arg index "$IMAGE_INDEX" --arg image "$image" \
             '{architecture: $architecture, index: $index, image: $image}' > "release-image-$RELEASE_ARCH.json"
@@ -124,6 +132,7 @@ jobs:
           retention-days: 90
 
   announce:
+    name: Create verified GitHub release
     needs: [publish, verify-images]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -145,7 +154,10 @@ jobs:
           jq -se --arg index "$IMAGE_INDEX" '
             ([.[].architecture] | sort) == ["amd64", "arm64"] and
             all(.[]; .index == $index)
-          ' release-images/*/*.json >/dev/null
+          ' release-images/*/*.json >/dev/null || {
+            echo '::error title=CI_IMAGE_EVIDENCE::Expected one verified amd64 image and one verified arm64 image from the published index. Inspect the release-image artifacts.'
+            exit 1
+          }
           {
             printf 'Source commit: `%s`\n\n' "$GITHUB_SHA"
             printf 'Verified Linux amd64 and arm64 images:\n\n'

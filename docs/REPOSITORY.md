@@ -19,7 +19,7 @@ conversations. Release tags are immutable.
 
 | Event | Checks | Real Kafka/Connect integration |
 | --- | --- | --- |
-| Feature branch push | Formatting, module integrity, build, unit tests | No |
+| Feature branch push | Formatting, module integrity, workflow syntax, repository policies, build, vet, unit tests | No |
 | Push to `dev`, `staging`, or `main` | Formatting, module integrity, build, vet, race tests, vulnerability checks, container smoke test, Kubernetes render | No |
 | PR into `dev`, `staging`, or `main` | All checks above | Yes |
 | Release tag | All checks above and native amd64/arm64 image verification | Yes |
@@ -28,6 +28,22 @@ The required `CI required` check passes only when every applicable PR check
 succeeds. Each promotion runs fresh integration tests. Contributor CI runs without
 publishing credentials. A title or description edit can reuse successful CI only
 when the PR, source commit, and base commit remain unchanged.
+
+**Plan and promotion policy** selects the checks and validates the promotion path,
+source snapshot, and staging freeze before expensive jobs start. **Go checks**,
+**Container and Kubernetes**, and **Kafka Connect integration** then run in
+parallel when required. Full Go validation runs each test once with race detection
+and shuffled ordering. **Reuse previous CI** handles metadata edits; it checks all
+API pages and accepts the previous job names during migration. A newer failed
+full run, including a failed planning run, invalidates older success.
+
+The final gate keeps the protected name `CI required` for PRs and uses
+`CI branch or release` for other events. Its job summary lists every upstream
+result, and errors identify failed, cancelled, skipped, or missing required checks.
+Policy helpers report stable `CI_*` codes locally and as Actions annotations.
+Exit statuses are `1` for policy/check failures, `2` for invalid inputs, `3` for
+GitHub API/permission failures, and `4` for a validation wait timeout. Tool failures
+such as Go compiler errors retain the tool's original diagnostics and exit status.
 
 ## Promotion and candidate snapshots
 
@@ -48,7 +64,9 @@ approve pull requests** setting is disabled. Use the local helper with your
 maintainer login in that configuration.
 
 Each promotion PR records `<!-- promotion-source: FULL_SHA -->` and its validation
-results. CI rejects a candidate whose source branch has advanced. An open
+results. LF and CRLF descriptions are equivalent; missing, duplicate, and changed
+source markers have distinct errors. CI rejects a candidate whose source branch
+has advanced. An open
 `staging` → `main` PR freezes staging; complete or close that PR before preparing
 another candidate. Candidate fixes follow the same `dev` → `staging` path.
 

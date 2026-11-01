@@ -84,8 +84,9 @@ gh pr checks STAGING_PR_NUMBER --watch --fail-fast
 gh pr merge STAGING_PR_NUMBER --merge --match-head-commit "$dev_sha"
 ```
 
-Confirm `branch-policy`, `verify`, `container`, `integration`, and `CI required`
-pass. The integration job starts real Kafka and Connect containers. Review the
+Confirm `Plan and promotion policy`, `Go checks`, `Container and Kubernetes`,
+`Kafka Connect integration`, and `CI required` pass. The integration job starts
+real Kafka and Connect containers. Review the
 candidate and record any staging-environment validation you performed; merging
 the branch itself does not deploy an environment. Never use `--delete-branch`
 on promotion PRs: `dev` and `staging` are permanent branches.
@@ -142,10 +143,14 @@ gh run view RUN_ID --log-failed
 | --- | --- |
 | Promote cannot create a PR with `GITHUB_TOKEN` | Use the local helper with your maintainer login. Check the Actions setting described above; do not weaken branch protections. |
 | `dev moved` or `staging moved` | Fetch and review the new source commit, then rerun the helper with its full SHA. |
-| Candidate changed or has no source snapshot | Close the stale candidate PR and prepare a replacement using the helper. Do not change its marker just to bypass the check. |
+| `CI_SOURCE_CHANGED` or `CI_CANDIDATE_CHANGED` | Compare the recorded and current SHAs in the error. Review the new source, then close the stale candidate PR and prepare a replacement. Do not change its marker just to bypass the check. |
+| `CI_CANDIDATE_MISSING` or `CI_CANDIDATE_DUPLICATE` | Restore exactly one original source-marker line in the PR description. LF and CRLF line endings are both supported. |
 | Staging is frozen | Complete or close the existing `staging` → `main` PR before preparing another staging candidate. |
 | `CI required` is expected | A branch-push run is insufficient. Check for a pending approval, merge conflict, or missing full PR run. If no run exists, close and reopen the unmerged PR using your maintainer login to trigger full validation. |
-| Metadata job reports no successful full CI for the current commits | Let an in-flight full PR run finish. If none succeeded for the current source and base, close and reopen the unmerged PR to trigger one, then update its description after it passes. Rerunning only the metadata job cannot replace full validation. |
+| `CI_PREVIOUS_MISSING`, `CI_PREVIOUS_FAILED`, or `CI_PREVIOUS_INCOMPLETE` | Follow the linked full run and its failed job. Let an in-flight run finish, or rerun full validation after fixing the cause. If no full run exists for this PR/source/base, close and reopen the unmerged PR to trigger one. Rerunning only `Reuse previous CI` cannot replace full validation. |
+| `CI_PREVIOUS_TIMEOUT` | The reuse job exhausted its wait for full CI. Inspect the pending full run, then rerun the reuse job after full validation completes. |
+| `CI_GITHUB_API` or `CI_PROMOTION_CREATE` | Check the preceding GitHub CLI error and token permissions. Use the local maintainer helper if Actions cannot create the PR. |
+| `CI_PLAN_FAILED` or `CI_CHECK_FAILED` | The aggregate summary names the original failed/cancelled/skipped check. Inspect that job; rerunning only `CI required` cannot repair its inputs. |
 | Build, vulnerability, container, or integration check fails | Fix the cause through the feature → `dev` path and validate again. Integration diagnostics are attached to the failed run. For a confirmed transient failure, use `gh run rerun RUN_ID --failed`. |
 | PR into `dev` is behind | Merge current `origin/dev` into the feature branch and push; wait for new PR checks. |
 

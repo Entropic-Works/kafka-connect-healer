@@ -24,6 +24,16 @@ expect_fail() {
   fi
 }
 
+expect_error() {
+  local expected_exit=$1 expected_code=$2 output status=0
+  shift 2
+  output=$("$@" 2>&1) || status=$?
+  if [[ "$status" != "$expected_exit" || "$output" != *"[$expected_code]"* ]]; then
+    printf 'Expected exit %s and %s from %s; got exit %s:\n%s\n' "$expected_exit" "$expected_code" "$*" "$status" "$output" >&2
+    exit 1
+  fi
+}
+
 expect_pass env BASE_BRANCH=dev HEAD_BRANCH=feature HEAD_REPOSITORY=contributor/fork BASE_REPOSITORY=owner/repo bash "$promotion"
 expect_pass env BASE_BRANCH=staging HEAD_BRANCH=dev HEAD_REPOSITORY=owner/repo BASE_REPOSITORY=owner/repo bash "$promotion"
 expect_pass env BASE_BRANCH=main HEAD_BRANCH=staging HEAD_REPOSITORY=owner/repo BASE_REPOSITORY=owner/repo bash "$promotion"
@@ -43,6 +53,7 @@ done
 # Fixtures are isolated and never change the project's Git refs or config.
 fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
+export GITHUB_STEP_SUMMARY="$fixture/summary.md"
 
 # Exercise CI event selection, including metadata edits that must not publish a
 # fresh passing required check or interrupt code validation.
@@ -64,7 +75,7 @@ export GITHUB_EVENT_PATH="$event"
 printf '%s\n' '{"action":"opened"}' > "$event"
 expect_mode full env GITHUB_EVENT_NAME=pull_request
 printf '%s\n' '{"action":"edited","changes":{"title":{"from":"old"}},"pull_request":{"body":"notes"}}' > "$event"
-expect_mode ignore env GITHUB_EVENT_NAME=pull_request
+expect_mode metadata env GITHUB_EVENT_NAME=pull_request
 printf '%s\n' '{"action":"edited","changes":{"base":{"ref":{"from":"dev"}}}}' > "$event"
 expect_mode full env GITHUB_EVENT_NAME=pull_request
 source_sha=1111111111111111111111111111111111111111
@@ -74,18 +85,40 @@ printf '<!-- promotion-source: %s -->\n' "$source_sha" > "$body"
 expect_pass bash "$candidate" "$body" "$source_sha"
 expect_fail bash "$candidate" "$body" "$other_sha"
 expect_fail bash "$candidate" "$body" short
+expect_error 2 CI_SOURCE_SHA_INVALID bash "$candidate" "$body" short
+expect_error 1 CI_CANDIDATE_CHANGED bash "$candidate" "$body" "$other_sha"
 jq -n --rawfile body "$body" '{action:"edited",changes:{body:{from:$body}},pull_request:{body:($body + "Release notes")}}' > "$event"
-expect_mode ignore env GITHUB_EVENT_NAME=pull_request
+expect_mode metadata env GITHUB_EVENT_NAME=pull_request
 jq -n --rawfile body "$body" '{action:"edited",changes:{title:{from:"old title"}},pull_request:{body:$body}}' > "$event"
-expect_mode ignore env GITHUB_EVENT_NAME=pull_request
+expect_mode metadata env GITHUB_EVENT_NAME=pull_request
 jq -n --rawfile body "$body" '{action:"edited",changes:{body:{from:""}},pull_request:{body:$body}}' > "$event"
 expect_mode full env GITHUB_EVENT_NAME=pull_request
+# Line-ending changes preserve the source snapshot, including mixed LF/CRLF.
+for before_ending in lf crlf; do
+  for after_ending in lf crlf; do
+    jq -n --arg sha "$source_sha" --arg before "$before_ending" --arg after "$after_ending" '
+      def body($ending): "<!-- promotion-source: " + $sha + " -->" + (if $ending == "crlf" then "\r\n" else "\n" end);
+      {action:"edited",changes:{body:{from:body($before)}},pull_request:{body:(body($after) + "Updated notes\r\n")}}
+    ' > "$event"
+    expect_mode metadata env GITHUB_EVENT_NAME=pull_request
+  done
+done
+printf '<!-- promotion-source: %s -->\r\nRelease notes\r\n' "$source_sha" > "$body"
+expect_pass bash "$candidate" "$body" "$source_sha"
+expect_fail bash "$candidate" "$body" "$other_sha"
+jq -n --arg sha "$source_sha" --arg other "$other_sha" '{action:"edited",
+  changes:{body:{from:("<!-- promotion-source: " + $sha + " -->\r\n")}},
+  pull_request:{body:("<!-- promotion-source: " + $other + " -->\r\n")}}' > "$event"
+expect_mode full env GITHUB_EVENT_NAME=pull_request
+printf '<!-- promotion-source: %s -->\n' "$source_sha" >> "$body"
+expect_error 1 CI_CANDIDATE_DUPLICATE bash "$candidate" "$body" "$source_sha"
+printf '<!-- promotion-source: %s -->\n' "$source_sha" > "$body"
 jq -n --rawfile body "$body" '{action:"edited",changes:{body:{from:$body}},pull_request:{body:""}}' > "$event"
 expect_mode full env GITHUB_EVENT_NAME=pull_request
 printf '<!-- promotion-source: %s -->\n' "$source_sha" >> "$body"
 expect_fail bash "$candidate" "$body" "$source_sha"
 printf 'No candidate snapshot\n' > "$body"
-expect_fail bash "$candidate" "$body" "$source_sha"
+expect_error 1 CI_CANDIDATE_MISSING bash "$candidate" "$body" "$source_sha"
 
 # Test the real orchestration against a local GitHub CLI fixture. No remote refs,
 # PRs, or releases are changed by these tests.
@@ -94,9 +127,12 @@ cat > "$fixture/bin/gh" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
 case "$*" in
-  'api repos/owner/repo/actions/workflows/ci.yml/runs?'*) cat "${MOCK_CI_RUNS:?}" ;;
-  'api repos/owner/repo/actions/runs/200/jobs?'*) cat "${MOCK_METADATA_JOBS:?}" ;;
-  'api repos/owner/repo/actions/runs/'*'/jobs?'*) cat "${MOCK_PREVIOUS_JOBS:?}" ;;
+  'api --paginate --slurp repos/owner/repo/actions/workflows/ci.yml/runs?'*)
+    if [[ "${MOCK_API_FAIL:-false}" == true ]]; then exit 1; fi
+    jq -s '.' "${MOCK_CI_RUNS:?}"
+    ;;
+  'api --paginate --slurp repos/owner/repo/actions/runs/200/jobs?'*) jq -s '.' "${MOCK_METADATA_JOBS:?}" ;;
+  'api --paginate --slurp repos/owner/repo/actions/runs/'*'/jobs?'*) jq -s '.' "${MOCK_PREVIOUS_JOBS:?}" ;;
   'api repos/owner/repo/git/ref/heads/'*)
     if [[ -n "${MOCK_REF_CALLS_FILE:-}" ]]; then
       count=$(cat "$MOCK_REF_CALLS_FILE")
@@ -173,8 +209,8 @@ jq -n --arg head "$source_sha" --arg base "$other_sha" \
   '{number:18,pull_request:{head:{sha:$head},base:{ref:"staging",sha:$base}}}' > "$event"
 jq -n '{jobs:(["branch-policy","verify","container","integration","CI required"]
   | map({name:.,conclusion:"success"}))}' > "$MOCK_PREVIOUS_JOBS"
-jq -n '{jobs:(["branch-policy","verify","container","integration"]
-  | map({name:.,conclusion:"skipped"}))}' > "$MOCK_METADATA_JOBS"
+jq -n '{jobs:([{name:"metadata",conclusion:"success"}] + (["branch-policy","verify","container","integration"]
+  | map({name:.,conclusion:"skipped"})))}' > "$MOCK_METADATA_JOBS"
 jq -n --arg head "$source_sha" --arg base "$other_sha" '{workflow_runs:[
   {id:200,event:"pull_request",head_sha:$head,status:"completed",conclusion:"success",
    pull_requests:[{number:18,head:{sha:$head},base:{ref:"staging",sha:$base}}]},
@@ -183,6 +219,22 @@ jq -n --arg head "$source_sha" --arg base "$other_sha" '{workflow_runs:[
 ]}' > "$MOCK_CI_RUNS"
 cp "$MOCK_CI_RUNS" "$fixture/good-ci-runs.json"
 expect_pass bash "$previous_ci"
+# Renamed jobs must work without discarding successful pre-migration evidence.
+jq '.jobs |= map(.name = ({"branch-policy":"Plan and promotion policy", "verify":"Go checks",
+  "container":"Container and Kubernetes", "integration":"Kafka Connect integration"}[.name] // .name))' \
+  "$MOCK_PREVIOUS_JOBS" > "$fixture/renamed-jobs.json"
+expect_pass env MOCK_PREVIOUS_JOBS="$fixture/renamed-jobs.json" bash "$previous_ci"
+# Evidence can be on later API pages for both workflow runs and jobs.
+jq -c '{workflow_runs:[.workflow_runs[0]]}, {workflow_runs:[.workflow_runs[1]]}' \
+  "$fixture/good-ci-runs.json" > "$MOCK_CI_RUNS"
+jq -c '{jobs:.jobs[:2]}, {jobs:.jobs[2:]}' "$MOCK_PREVIOUS_JOBS" > "$fixture/paged-jobs.json"
+expect_pass env MOCK_PREVIOUS_JOBS="$fixture/paged-jobs.json" bash "$previous_ci"
+cp "$fixture/good-ci-runs.json" "$MOCK_CI_RUNS"
+expect_error 3 CI_GITHUB_API env MOCK_API_FAIL=true bash "$previous_ci"
+jq '.workflow_runs[1].status = "in_progress" | .workflow_runs[1].conclusion = null' \
+  "$fixture/good-ci-runs.json" > "$MOCK_CI_RUNS"
+expect_error 4 CI_PREVIOUS_TIMEOUT env CI_POLL_ATTEMPTS=1 CI_POLL_INTERVAL_SECONDS=0 bash "$previous_ci"
+cp "$fixture/good-ci-runs.json" "$MOCK_CI_RUNS"
 jq '.workflow_runs[1].conclusion = "failure"' "$fixture/good-ci-runs.json" > "$MOCK_CI_RUNS"
 expect_fail bash "$previous_ci"
 for mutation in '.workflow_runs[1].head_sha = "other"' \
@@ -199,6 +251,40 @@ expect_fail bash "$previous_ci"
 cp "$fixture/good-ci-runs.json" "$MOCK_CI_RUNS"
 jq '.jobs |= map(select(.name != "integration"))' "$MOCK_PREVIOUS_JOBS" > "$fixture/missing-integration.json"
 expect_fail env MOCK_PREVIOUS_JOBS="$fixture/missing-integration.json" bash "$previous_ci"
+# A newer failed plan with skipped tests is a failed full run, not reusable metadata.
+jq -n '{jobs:[{name:"Plan and promotion policy",conclusion:"failure"},
+  {name:"Reuse previous CI",conclusion:"skipped"}, {name:"Go checks",conclusion:"skipped"},
+  {name:"Container and Kubernetes",conclusion:"skipped"}, {name:"Kafka Connect integration",conclusion:"skipped"}]}' \
+  > "$fixture/failed-plan.json"
+jq '.workflow_runs[0].conclusion = "failure"' "$fixture/good-ci-runs.json" > "$MOCK_CI_RUNS"
+expect_error 1 CI_PREVIOUS_FAILED env MOCK_METADATA_JOBS="$fixture/failed-plan.json" bash "$previous_ci"
+
+# The protected aggregate reports missing/skipped/cancelled checks explicitly.
+results="$repo_root/scripts/check-ci-results.sh"
+full_results=$(jq -nc '{plan:{result:"success",outputs:{mode:"full"}},verify:{result:"success"},
+  metadata:{result:"skipped"},container:{result:"success"},integration:{result:"success"}}')
+expect_pass env NEEDS_JSON="$full_results" INTEGRATION_REQUIRED=true bash "$results"
+for result in failure cancelled skipped; do
+  changed=$(jq -c --arg result "$result" '.integration.result = $result' <<< "$full_results")
+  expect_error 1 CI_CHECK_FAILED env NEEDS_JSON="$changed" INTEGRATION_REQUIRED=true bash "$results"
+done
+changed=$(jq -c 'del(.integration)' <<< "$full_results")
+expect_error 1 CI_CHECK_FAILED env NEEDS_JSON="$changed" INTEGRATION_REQUIRED=true bash "$results"
+changed=$(jq -c '.integration.result = "skipped"' <<< "$full_results")
+expect_pass env NEEDS_JSON="$changed" INTEGRATION_REQUIRED=false bash "$results"
+changed=$(jq -c '.plan.result = "failure" | .verify.result = "skipped" | .container.result = "skipped" | .integration.result = "skipped"' <<< "$full_results")
+expect_error 1 CI_PLAN_FAILED env NEEDS_JSON="$changed" INTEGRATION_REQUIRED=true bash "$results"
+changed=$(jq -c '.plan.outputs.mode = "metadata" | .metadata.result = "success" | .verify.result = "skipped" | .container.result = "skipped" | .integration.result = "skipped"' <<< "$full_results")
+expect_pass env NEEDS_JSON="$changed" INTEGRATION_REQUIRED=true bash "$results"
+changed=$(jq -c '.metadata.result = "skipped"' <<< "$changed")
+expect_error 1 CI_CHECK_FAILED env NEEDS_JSON="$changed" INTEGRATION_REQUIRED=true bash "$results"
+changed=$(jq -c '.plan.outputs.mode = "feature" | .container.result = "skipped" | .integration.result = "skipped"' <<< "$full_results")
+expect_pass env NEEDS_JSON="$changed" INTEGRATION_REQUIRED=false bash "$results"
+expect_error 2 CI_MODE_INVALID env NEEDS_JSON="$changed" INTEGRATION_REQUIRED=true bash "$results"
+changed=$(jq -c '.plan.outputs.mode = "unknown"' <<< "$full_results")
+expect_error 2 CI_MODE_INVALID env NEEDS_JSON="$changed" bash "$results"
+expect_error 2 CI_RESULTS_INVALID env NEEDS_JSON='{}' bash "$results"
+[[ "$(cat "$GITHUB_STEP_SUMMARY")" == *'Kafka Connect integration'* ]]
 
 # Select runnable platform manifests, excluding provenance/SBOM attestations.
 digest_a=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

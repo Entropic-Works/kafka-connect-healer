@@ -37,9 +37,11 @@ go test -race -count=2 -timeout=30m -v -run 'TestIntegration/RequestFailures' ./
 go vet ./...
 ```
 
-The setup builds both images once per test process, even with `-count=2`, using
-Docker's build cache. It checks the daemon with a 15-second timeout and allows up
-to five minutes per image build. Build output is saved in `docker-info.log`,
+The setup checks the daemon once, then builds the application and Java fixture
+images concurrently, once per test process even with `-count=2`, using Docker's
+build cache. The first build failure cancels and awaits the other build, retaining
+the original failure and both build logs. The daemon check has a 15-second timeout;
+each image build has a five-minute timeout. Build output is saved in `docker-info.log`,
 `build-healer.log`, and `build-connect.log`; failures also include command output
 in the test result. Bash is not needed. The application build still uses the real
 production Dockerfile and its BuildKit cache mounts.
@@ -50,6 +52,14 @@ they are always rebuilt, not treated as prebuilt inputs. Tests never push images
 default is `artifacts/` inside this module, ignored by Git. CI uses the same Go
 entrypoint and preserves JSON test results and logs as an artifact for seven days.
 Collector output is also saved as newline-delimited OTLP JSON for metrics and logs.
+CI also reports setup/build timings, test groups sorted by duration, and failing
+subtests in its job summary. To summarize a local JSON run, use:
+
+```sh
+go run ./scripts/integration-report /path/to/test-results.jsonl
+```
+
+The reporter uses Go and the standard library and runs from the repository root.
 The primary Healer runs with telemetry enabled; its test collector receives
 OTLP/HTTP on the isolated Docker network and writes only to its own container filesystem.
 This needs no external observability platform or credentials.
@@ -72,9 +82,10 @@ Testcontainers cleanup runs after tests (including startup failures), with Ryuk
 as a fallback if the test process dies. Docker being unavailable is a failure,
 not a silent skip. `-short` explicitly skips the real-container suite.
 
-Subtests run sequentially to share the expensive infrastructure; each behavior
+Scenario subtests run sequentially to share the expensive infrastructure; each behavior
 owns its connectors and restores runtime settings in cleanup. Do not add
-`t.Parallel()` to these shared-fixture subtests. Filtered runs still create their
+`t.Parallel()` to these shared-fixture subtests. Only the independent image builds
+run concurrently. Filtered runs still create their
 own full stack. No scenario requires another scenario to have run first.
 
 ## Coverage

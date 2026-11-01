@@ -74,7 +74,8 @@ func buildTestImages(ctx context.Context, directory string, run dockerCommand) e
 		{"build-healer", 5 * time.Minute, []string{"build", "--progress=plain", "--tag", image("HEALER_TEST_IMAGE", defaultHealerImage), "--file", "Dockerfile", "."}},
 		{"build-connect", 5 * time.Minute, []string{"build", "--progress=plain", "--tag", image("CONNECT_TEST_IMAGE", defaultConnectImage), "--file", "tests/integration/testdata/Dockerfile.connect", "tests/integration/testdata"}},
 	}
-	for _, step := range steps {
+	runStep := func(ctx context.Context, index int) error {
+		step := steps[index]
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("%s: %w", step.name, err)
 		}
@@ -90,8 +91,30 @@ func buildTestImages(ctx context.Context, directory string, run dockerCommand) e
 			}
 			return fmt.Errorf("%s failed: %w\n%s", step.name, err, output)
 		}
+		return nil
 	}
-	return nil
+	// Check the daemon first, then overlap the independent application and Java
+	// fixture builds. Preserve the first failure and cancel the other build.
+	if err := runStep(ctx, 0); err != nil {
+		return err
+	}
+	buildContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var builds sync.WaitGroup
+	var failure sync.Once
+	var buildError error
+	for index := 1; index < len(steps); index++ {
+		builds.Go(func() {
+			if err := runStep(buildContext, index); err != nil {
+				failure.Do(func() {
+					buildError = err
+					cancel()
+				})
+			}
+		})
+	}
+	builds.Wait()
+	return buildError
 }
 
 func runDockerCommand(ctx context.Context, directory string, arguments ...string) ([]byte, error) {
