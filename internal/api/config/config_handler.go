@@ -19,7 +19,8 @@ type ConfigHandler struct {
 
 // PatchConfig applies supplied JSON fields to the current in-memory configuration.
 // UpdateConfiguration validates and commits the change atomically, then notifies
-// the polling and logging workers. Startup files are never written.
+// the polling workers. The manager applies logging changes synchronously.
+// Startup files are never written.
 func (handler *ConfigHandler) PatchConfig(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))

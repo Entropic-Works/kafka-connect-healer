@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 
@@ -51,6 +53,7 @@ func NewClusterManager(applicationContext context.Context, configurationManager 
 	for name, configuration := range clusters {
 		manager.clusterWorkers[name] = manager.startCluster(name, configuration)
 	}
+	manager.logClusters("Connect clusters initialized")
 	return manager, nil
 }
 
@@ -99,7 +102,7 @@ func (manager *ClusterManager) PutCluster(name string, configuration connectclus
 	manager.clusterWorkers[name] = manager.startCluster(name, configuration)
 	manager.clustersMutex.Unlock()
 	connectcluster.WarnDuplicateEndpoints(manager.GetClusters())
-	slog.Info("Connect cluster configured", "connect_cluster", name, "created", !exists)
+	manager.logClusters("Connect cluster configured", slog.String("connect_cluster", name), slog.Bool("created", !exists))
 	return !exists, nil
 }
 
@@ -120,7 +123,7 @@ func (manager *ClusterManager) DeleteCluster(name string) error {
 	manager.clustersMutex.Lock()
 	delete(manager.clusterWorkers, name)
 	manager.clustersMutex.Unlock()
-	slog.Info("Connect cluster removed", "connect_cluster", name)
+	manager.logClusters("Connect cluster removed", slog.String("connect_cluster", name))
 	return nil
 }
 
@@ -169,4 +172,19 @@ func validateCluster(name string, configuration connectcluster.Configuration) er
 		return fmt.Errorf("cluster name must not be empty")
 	}
 	return connectcluster.ValidateConfiguration(configuration)
+}
+
+// logClusters is called while lifecycle changes are serialized. GetClusters
+// returns a copy, so formatting never holds the cluster definitions lock.
+func (manager *ClusterManager) logClusters(message string, attributes ...slog.Attr) {
+	clusters := manager.GetClusters()
+	definitions := make([]slog.Attr, 0, len(clusters))
+	for _, name := range slices.Sorted(maps.Keys(clusters)) {
+		definitions = append(definitions, slog.Any(name, clusters[name]))
+	}
+	attributes = append(attributes, slog.Group("Connect clusters",
+		slog.Int("Count", len(clusters)),
+		slog.GroupAttrs("Definitions", definitions...),
+	))
+	slog.LogAttrs(manager.applicationContext, slog.LevelInfo, message, attributes...)
 }

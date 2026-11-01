@@ -551,6 +551,10 @@ func TestClusterPollersKeepIndependentBackoffsAndApplyApplicationUpdates(t *test
 		if err := json.Unmarshal(value, &record); err != nil {
 			t.Fatal(err)
 		}
+		// Application-wide summaries intentionally have no cluster identity.
+		if record.Message == "Application configuration initialized" || record.Message == "Application configuration updated" {
+			continue
+		}
 		clusterMessages, exists := messages[record.Cluster]
 		if !exists || record.Endpoint != endpoints[record.Cluster] {
 			t.Fatalf("log lost its cluster context: %s", value)

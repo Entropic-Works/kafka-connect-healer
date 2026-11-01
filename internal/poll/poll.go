@@ -49,7 +49,7 @@ func (poller *ConnectClusterPoller) Poll(ctx context.Context, configurationManag
 		}
 	}
 	logger = logger.With("connect_cluster", poller.name, "endpoint", poller.connectClient.BaseURL)
-	logPollingSettings(logger, "polling started", configuration)
+	logger.Info("polling started")
 	defer logger.Info("polling stopped")
 
 	ticker := time.NewTicker(configuration.PollingBehavior.Interval.Duration())

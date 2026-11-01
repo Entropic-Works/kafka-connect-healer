@@ -51,7 +51,7 @@ func testHTTPAuthentication(t *testing.T, s *suite) {
 			t.Fatalf("authenticated HTTP warnings = %d, want %d", got, want)
 		}
 		for _, line := range strings.Split(output, "\n") {
-			if strings.Contains(line, message) && (!matchingLog(line, "level=WARN", "connect_cluster=test", "endpoint=http://connect-secondary:8083") || strings.Contains(line, connectUsername)) {
+			if strings.Contains(line, message) && (!matchingLog(line, " WARN ", "connect_cluster=test", "endpoint=http://connect-secondary:8083") || strings.Contains(line, connectUsername)) {
 				t.Fatalf("warning lost cluster/endpoint context or exposed the username: %s", line)
 			}
 		}
@@ -64,7 +64,7 @@ func testHTTPAuthentication(t *testing.T, s *suite) {
 	waitForPolls := func(endpoint string, previous int) {
 		t.Helper()
 		eventually(t, 10*time.Second, "successful polling at "+endpoint, func() bool {
-			return countMatchingLogs(logs(t, app), `msg="poll cycle completed"`, "endpoint="+endpoint, "outcome=success") >= previous+2
+			return countMatchingLogs(logs(t, app), "poll cycle completed", "endpoint="+endpoint, "outcome=success") >= previous+2
 		})
 	}
 	const httpEndpoint = "http://connect-secondary:8083"
@@ -77,7 +77,7 @@ func testHTTPAuthentication(t *testing.T, s *suite) {
 	}
 
 	// Identical and invalid PUTs must preserve the active worker and its settings.
-	started := countMatchingLogs(logs(t, app), `msg="polling started"`)
+	started := countMatchingLogs(logs(t, app), "polling started")
 	apiRequest("PUT", "/clusters/test", definition(false, true, connectUsername, connectPassword), 204)
 	for _, credentials := range [][2]string{{"", connectPassword}, {" ", connectPassword}, {"team:user", connectPassword}, {connectUsername, ""}} {
 		apiRequest("PUT", "/clusters/test", definition(false, true, credentials[0], credentials[1]), 400)
@@ -85,7 +85,7 @@ func testHTTPAuthentication(t *testing.T, s *suite) {
 			t.Fatal("invalid HTTP authentication update changed the stored definition")
 		}
 	}
-	if countMatchingLogs(logs(t, app), `msg="polling started"`) != started {
+	if countMatchingLogs(logs(t, app), "polling started") != started {
 		t.Fatal("identical or invalid PUT replaced the worker")
 	}
 	warnings(1)
@@ -96,9 +96,9 @@ func testHTTPAuthentication(t *testing.T, s *suite) {
 	f.marker(t, "fail-task", false)
 	f.wait(t, "RUNNING", "RUNNING")
 	eventually(t, 5*time.Second, "observed HTTP task recovery", func() bool {
-		return matchingLog(logs(t, app), `msg="task recovered"`, "connector="+f.name, "endpoint="+httpEndpoint)
+		return matchingLog(logs(t, app), "task recovered", "connector="+f.name, "endpoint="+httpEndpoint)
 	})
-	if !matchingLog(logs(t, app), `msg="task restart request accepted"`, "connector="+f.name, "endpoint="+httpEndpoint) {
+	if !matchingLog(logs(t, app), "task restart request accepted", "connector="+f.name, "endpoint="+httpEndpoint) {
 		t.Fatal("task restart was not accepted over HTTP")
 	}
 
@@ -127,7 +127,7 @@ func testHTTPAuthentication(t *testing.T, s *suite) {
 	f.wait(t, "RUNNING", "RUNNING")
 	waitForPolls(httpsEndpoint, 0)
 	warnings(2)
-	previous := countMatchingLogs(logs(t, app), `msg="poll cycle completed"`, "endpoint="+httpEndpoint, "outcome=success")
+	previous := countMatchingLogs(logs(t, app), "poll cycle completed", "endpoint="+httpEndpoint, "outcome=success")
 	apiRequest("PUT", "/clusters/test", definition(false, true, connectUsername, connectPassword), 204)
 	waitForPolls(httpEndpoint, previous)
 	warnings(3)
@@ -140,12 +140,12 @@ func testHTTPAuthentication(t *testing.T, s *suite) {
 	}
 	eventually(t, 15*time.Second, "real connector restart over authenticated HTTP", func() bool {
 		return len(f.starts(t, "connector")) >= connectorStarts+2 &&
-			matchingLog(logs(t, app), `msg="connector restart request accepted"`, "connector="+f.name, "endpoint="+httpEndpoint)
+			matchingLog(logs(t, app), "connector restart request accepted", "connector="+f.name, "endpoint="+httpEndpoint)
 	})
 	f.marker(t, "fail-connector", false)
 	f.wait(t, "RUNNING", "RUNNING")
 	eventually(t, 5*time.Second, "observed HTTP connector recovery", func() bool {
-		return matchingLog(logs(t, app), `msg="connector recovered"`, "connector="+f.name, "endpoint="+httpEndpoint)
+		return matchingLog(logs(t, app), "connector recovered", "connector="+f.name, "endpoint="+httpEndpoint)
 	})
 	warnings(3)
 }
