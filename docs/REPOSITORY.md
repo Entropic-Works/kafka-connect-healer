@@ -11,9 +11,12 @@ Changes follow this path through pull requests:
 feature or fix → dev → staging → main → version tag
 ```
 
-All pull requests use merge commits. Feature branches must be up to date with
-`dev` before merging. Protected branches require passing CI and resolved review
-conversations. Release tags are immutable.
+Pull requests into `dev` must use squash merges, producing one commit per feature
+or fix. Promotions from `dev` to `staging` and from `staging` to `main` must use
+merge commits to preserve candidate ancestry. Branch rules enforce these methods;
+both methods are enabled at the repository level, and rebase merging is disabled.
+Feature branches must be up to date with `dev` before merging. Protected branches
+require passing CI and resolved review conversations. Release tags are immutable.
 
 ## Continuous integration
 

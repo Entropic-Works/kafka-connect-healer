@@ -46,8 +46,11 @@ gh pr create --base dev --head YOUR_FEATURE_BRANCH \
   --title 'Describe the user-facing change' --body-file /path/to/pr-description.md
 gh pr checks FEATURE_PR_NUMBER --watch --fail-fast
 gh pr view FEATURE_PR_NUMBER --json headRefOid,mergeStateStatus
-gh pr merge FEATURE_PR_NUMBER --merge --match-head-commit FULL_REVIEWED_FEATURE_SHA
+gh pr merge FEATURE_PR_NUMBER --squash --match-head-commit FULL_REVIEWED_FEATURE_SHA
 ```
+
+PRs into `dev` require squash merging. Use merge commits for the later promotions
+into `staging` and `main`; their rules reject squash merges.
 
 Review the diff and resolve review conversations before merging. `dev` requires
 the feature branch to include the current `dev` base. If it is behind, merge

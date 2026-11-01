@@ -6,7 +6,8 @@ Discuss larger behavior or API changes in an issue before implementing them.
 
 Fork the repository, branch from `dev`, and open your pull request against `dev`.
 Use a focused branch name such as `fix/restart-timeout` or `docs/configuration`.
-Maintainers promote `dev` to `staging`, then `staging` to `main` using merge
+Pull requests into `dev` use squash merges, producing one commit per feature or
+fix. Maintainers promote `dev` to `staging`, then `staging` to `main` using merge
 commits; contributors do not target those branches. See the
 [repository workflow](docs/REPOSITORY.md) and [code of conduct](CODE_OF_CONDUCT.md).
 Feature branches must be up to date with `dev` before merging; merge the latest

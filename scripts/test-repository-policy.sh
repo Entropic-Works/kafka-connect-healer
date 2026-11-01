@@ -308,10 +308,26 @@ jq -n --arg digest "$digest_a" '{manifests:[
 ]}' > "$manifest"
 expect_fail bash "$select_image" "$manifest" "$image" arm64
 
-# The current-base requirement applies only to dev; tag mutation has no bypass.
+# Dev requires squash merges and a current base; promotions preserve merge ancestry.
 jq -e '.conditions.ref_name.include == ["refs/heads/dev"] and
-  .bypass_actors == [] and .rules[0].parameters.strict_required_status_checks_policy == true' \
+  .enforcement == "active" and .bypass_actors == [] and
+  ([.rules[].type] | sort) == ["deletion","non_fast_forward","pull_request","required_status_checks"] and
+  any(.rules[]; .type == "pull_request" and .parameters.allowed_merge_methods == ["squash"] and
+    .parameters.required_review_thread_resolution == true) and
+  any(.rules[]; .type == "required_status_checks" and .parameters.strict_required_status_checks_policy == true and
+    .parameters.required_status_checks == [{"context":"CI required","integration_id":15368}])' \
   "$repo_root/.github/rulesets/dev-current-base.json" >/dev/null
+jq -e '.conditions.ref_name.include == ["refs/heads/staging","refs/heads/main"] and
+  .enforcement == "active" and .bypass_actors == [] and
+  ([.rules[].type] | sort) == ["deletion","non_fast_forward","pull_request","required_status_checks"] and
+  any(.rules[]; .type == "pull_request" and .parameters.allowed_merge_methods == ["merge"] and
+    .parameters.required_review_thread_resolution == true) and
+  any(.rules[]; .type == "required_status_checks" and .parameters.strict_required_status_checks_policy == false and
+    .parameters.required_status_checks == [{"context":"CI required","integration_id":15368}])' \
+  "$repo_root/.github/rulesets/promotion-workflow.json" >/dev/null
+jq -e '.allow_merge_commit == true and .allow_squash_merge == true and .allow_rebase_merge == false' \
+  "$repo_root/.github/repository-settings.json" >/dev/null
+# Tag mutation has no bypass.
 jq -e '.bypass_actors == [] and ([.rules[].type] | sort) == ["deletion","update"]' \
   "$repo_root/.github/rulesets/tag-ruleset.json" >/dev/null
 jq -e '.conditions.ref_name.include == ["refs/tags/v*", "refs/tags/[0-9]*"] and
