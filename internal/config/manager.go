@@ -2,7 +2,10 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
+
+	"github.com/Entropic-Works/kafka-connect-healer/internal/logging"
 )
 
 type Manager struct {
@@ -13,6 +16,8 @@ type Manager struct {
 
 // NewManager requires a configuration that has already passed ValidateConfiguration.
 func NewManager(configuration ApplicationConfiguration) *Manager {
+	logging.SetLevel(configuration.LoggingConfig.Level)
+	slog.Info("Application configuration initialized", "Application", configuration)
 	return &Manager{
 		configuration:              configuration,
 		configurationUpdateChannel: make(chan struct{}),
@@ -56,6 +61,8 @@ func (m *Manager) UpdateConfiguration(changeConfig func(*ApplicationConfiguratio
 		return nil
 	}
 	m.configuration = nextConfiguration
+	logging.SetLevel(nextConfiguration.LoggingConfig.Level)
+	slog.Info("Application configuration updated", "Application", nextConfiguration)
 	close(m.configurationUpdateChannel)
 	m.configurationUpdateChannel = make(chan struct{})
 	return nil

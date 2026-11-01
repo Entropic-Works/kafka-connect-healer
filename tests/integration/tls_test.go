@@ -56,7 +56,7 @@ func testTLSVerification(t *testing.T, s *suite) {
 					t.Fatalf("TLS verification warnings = %d, want %d", got, want)
 				}
 				for _, line := range strings.Split(output, "\n") {
-					if strings.Contains(line, warning) && (!matchingLog(line, "level=WARN", "connect_cluster=test", "endpoint=https://"+test.host+":8444") || strings.Contains(line, connectUsername)) {
+					if strings.Contains(line, warning) && (!matchingLog(line, " WARN ", "connect_cluster=test", "endpoint=https://"+test.host+":8444") || strings.Contains(line, connectUsername)) {
 						t.Fatal("TLS warning lost cluster/endpoint context or exposed the username")
 					}
 				}
@@ -67,7 +67,7 @@ func testTLSVerification(t *testing.T, s *suite) {
 			waitForPolls := func(previous int) {
 				t.Helper()
 				eventually(t, 10*time.Second, "successful TLS polling", func() bool {
-					return countMatchingLogs(logs(t, app), "connect_cluster=test", `msg="poll cycle completed"`, "outcome=success") >= previous+2
+					return countMatchingLogs(logs(t, app), "connect_cluster=test", "poll cycle completed", "outcome=success") >= previous+2
 				})
 			}
 			waitForPolls(0)
@@ -93,13 +93,13 @@ func testTLSVerification(t *testing.T, s *suite) {
 			eventually(t, 10*time.Second, "strict cluster remains isolated", func() bool {
 				return matchingLog(logs(t, app), "connect_cluster=verified", test.failure)
 			})
-			previous := countMatchingLogs(logs(t, app), "connect_cluster=test", `msg="poll cycle completed"`, "outcome=success")
+			previous := countMatchingLogs(logs(t, app), "connect_cluster=test", "poll cycle completed", "outcome=success")
 			waitForPolls(previous)
-			started := countMatchingLogs(logs(t, app), "connect_cluster=test", `msg="polling started"`)
+			started := countMatchingLogs(logs(t, app), "connect_cluster=test", "polling started")
 			apiRequest("PUT", "/clusters/test", bypass, 204)
 			invalid := strings.Replace(bypass, `"https":true`, `"https":false`, 1)
 			apiRequest("PUT", "/clusters/test", invalid, 400)
-			if countMatchingLogs(logs(t, app), "connect_cluster=test", `msg="polling started"`) != started {
+			if countMatchingLogs(logs(t, app), "connect_cluster=test", "polling started") != started {
 				t.Fatal("identical or invalid TLS PUT replaced the worker")
 			}
 			warnings(1)
@@ -118,7 +118,7 @@ func testTLSVerification(t *testing.T, s *suite) {
 			f.marker(t, "fail-task", false)
 			f.wait(t, "RUNNING", "RUNNING")
 			eventually(t, 5*time.Second, "task recovery observed after TLS bypass", func() bool {
-				return matchingLog(logs(t, app), "connect_cluster=test", "connector="+f.name, `msg="task recovered"`)
+				return matchingLog(logs(t, app), "connect_cluster=test", "connector="+f.name, "task recovered")
 			})
 			warnings(2)
 
@@ -132,14 +132,14 @@ func testTLSVerification(t *testing.T, s *suite) {
 			apiRequest("PUT", "/clusters/test", bypass, 204)
 			eventually(t, 15*time.Second, "bypassed TLS permits a real connector restart", func() bool {
 				return len(f.starts(t, "connector")) >= connectorStarts+2 &&
-					matchingLog(logs(t, app), "connect_cluster=test", "connector="+f.name, `msg="connector restart request accepted"`)
+					matchingLog(logs(t, app), "connect_cluster=test", "connector="+f.name, "connector restart request accepted")
 			})
 			f.marker(t, "fail-connector", false)
 			f.wait(t, "RUNNING", "RUNNING")
 			eventually(t, 5*time.Second, "connector recovery observed after TLS bypass", func() bool {
-				return matchingLog(logs(t, app), "connect_cluster=test", "connector="+f.name, `msg="connector recovered"`)
+				return matchingLog(logs(t, app), "connect_cluster=test", "connector="+f.name, "connector recovered")
 			})
-			if matchingLog(logs(t, app), "connect_cluster=verified", `msg="poll cycle completed"`, "outcome=success") {
+			if matchingLog(logs(t, app), "connect_cluster=verified", "poll cycle completed", "outcome=success") {
 				t.Fatal("strict cluster inherited another cluster's TLS bypass")
 			}
 			warnings(3)
