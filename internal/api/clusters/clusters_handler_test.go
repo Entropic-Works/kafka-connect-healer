@@ -33,6 +33,41 @@ func putRequest(body string) *http.Request {
 	return request
 }
 
+func TestStartStopClusterResponses(t *testing.T) {
+	for _, action := range []string{"start", "stop"} {
+		t.Run(action, func(t *testing.T) {
+			handler, manager := newTestHandler(t)
+			operation := handler.StartCluster
+			if action == "stop" {
+				operation = handler.StopCluster
+			}
+			request := httptest.NewRequest(http.MethodPut, "/clusters/production/"+action, nil)
+			request.SetPathValue("name", "production")
+			response := httptest.NewRecorder()
+			operation(response, request)
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("missing cluster = %d: %s", response.Code, response.Body.String())
+			}
+			if _, err := manager.PutCluster("production", connectcluster.DefaultConfiguration()); err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				response = httptest.NewRecorder()
+				operation(response, request)
+				if response.Code != http.StatusNoContent || response.Body.Len() != 0 {
+					t.Fatalf("configured cluster = %d: %s", response.Code, response.Body.String())
+				}
+			}
+			manager.Close()
+			response = httptest.NewRecorder()
+			operation(response, request)
+			if response.Code != http.StatusServiceUnavailable {
+				t.Fatalf("closed manager = %d: %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestGetClustersRedactsPasswordsWithoutChangingStoredValues(t *testing.T) {
 	handler, manager := newTestHandler(t)
 	configuration := connectcluster.DefaultConfiguration()

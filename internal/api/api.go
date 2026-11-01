@@ -27,6 +27,8 @@ func NewServer(components Components) *http.Server {
 	mux.HandleFunc("PATCH /config", configHandler.PatchConfig)
 	mux.HandleFunc("GET /clusters", clustersHandler.GetClusters)
 	mux.HandleFunc("PUT /clusters/{name}", clustersHandler.PutCluster)
+	mux.HandleFunc("PUT /clusters/{name}/start", clustersHandler.StartCluster)
+	mux.HandleFunc("PUT /clusters/{name}/stop", clustersHandler.StopCluster)
 	mux.HandleFunc("DELETE /clusters/{name}", clustersHandler.DeleteCluster)
 	return &http.Server{
 		Addr:              ":8080",

@@ -325,7 +325,7 @@ Application updates affect only the running process. YAML files are never modifi
 
 `PUT /clusters/{name}` creates or replaces one complete cluster definition; it does not merge with the existing definition or apply YAML defaults. Host and port are required, and enabled authentication requires supplied credentials. Authenticated HTTP definitions are accepted with the same transport encryption warning described above. Omitted fields become their zero values, including an omitted password; there is no password-preservation behavior. Invalid definitions leave the current poller untouched. PUT requires `Content-Type: application/json` and rejects unknown fields, duplicate keys, null values, invalid UTF-8, and malformed JSON. Bodies larger than 64 KiB return `413`, unsupported content types return `415`, and body-read timeouts return `408`.
 
-Creating a cluster returns `201 Created` with a `Location` header. Replacing a cluster returns `204 No Content`: the old poller is canceled and awaited before its replacement starts with a new client and fresh backoff history. An identical definition returns `204` without replacing the poller or resetting its history. Other clusters are unchanged. Duplicate endpoints produce a warning but are allowed.
+Creating a cluster returns `201 Created` with a `Location` header and starts polling. Replacing a cluster returns `204 No Content`: the old poller is canceled and awaited before its replacement starts with a new client and fresh backoff history. A stopped cluster remains stopped when its definition is replaced. An identical definition returns `204` without replacing the poller or resetting its history. Other clusters are unchanged. Duplicate endpoints produce a warning but are allowed.
 
 ```sh
 curl -X PUT http://localhost:8080/clusters/production \
@@ -333,9 +333,16 @@ curl -X PUT http://localhost:8080/clusters/production \
   -d '{"host":"connect.production.svc","port":"8083","tls":{"https":false},"authConfig":{"enabled":false}}'
 ```
 
-`DELETE /clusters/{name}` cancels that cluster's poller, waits for it to exit, and removes its definition before returning `204`. An unknown name returns `404`. Removal stops future polling but cannot undo restart requests already accepted by Kafka Connect. PUT and DELETE return `503` when the application is shutting down. New pollers use the application's lifetime context, so completing an API request does not stop them.
+`PUT /clusters/{name}/stop` cancels that cluster's poller and waits for it to exit, retaining its definition in `GET /clusters`. `PUT /clusters/{name}/start` resumes polling with a new client and fresh backoff history. Both endpoints require no request body or `Content-Type` and return `204 No Content`, including when the cluster is already in the requested state. Starting an already running cluster leaves its poller and backoff history unchanged. Stopping a cluster does not affect readiness or other clusters and cannot undo restart requests already accepted by Kafka Connect.
 
-Cluster updates are also in-memory only. Startup YAML files remain untouched, and restarting restores the definitions from those files. API authentication settings remain startup-only.
+```sh
+curl -X PUT http://localhost:8080/clusters/production/stop
+curl -X PUT http://localhost:8080/clusters/production/start
+```
+
+`DELETE /clusters/{name}` cancels that cluster's poller, waits for it to exit, and removes its definition before returning `204`. Start, stop, and delete return `404` for unknown names. All cluster mutations return `503` when the application is shutting down. New pollers use the application's lifetime context, so completing an API request does not stop them.
+
+Cluster updates and start/stop state are also in-memory only. Startup YAML files remain untouched, and restarting restores the definitions from those files with polling enabled for every configured cluster. API authentication settings remain startup-only.
 
 ## License
 
