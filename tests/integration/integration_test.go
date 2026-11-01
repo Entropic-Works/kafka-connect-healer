@@ -9,6 +9,7 @@ import (
 func TestIntegration(t *testing.T) {
 	s := newSuite(t)
 	t.Run("API", func(t *testing.T) { testAPI(t, s) })
+	t.Run("ConfigurationLogging", func(t *testing.T) { testConfigurationLogging(t, s) })
 	t.Run("HTTPAuthentication", func(t *testing.T) { testHTTPAuthentication(t, s) })
 	t.Run("TLSVerification", func(t *testing.T) { testTLSVerification(t, s) })
 	t.Run("KafkaAndTLS", func(t *testing.T) {
@@ -30,7 +31,7 @@ func TestIntegration(t *testing.T) {
 	t.Run("TaskPolicyBackoffAndRecovery", func(t *testing.T) {
 		s.resetAfter(t)
 		f := s.connector(t, s.primary, 1)
-		if matchingLog(logs(t, s.healer), "msg=\"task recovered\"", "connector="+f.name) {
+		if matchingLog(logs(t, s.healer), "task recovered", "connector="+f.name) {
 			t.Fatal("initially healthy task logged a recovery")
 		}
 		f.marker(t, "fail-task", true)
@@ -50,19 +51,19 @@ func TestIntegration(t *testing.T) {
 			t.Fatalf("missing accepted-attempt logging: %s", outcomes)
 		}
 		for _, message := range []string{"remediation action determined", "requesting task restart", "task restart skipped because it is in the backoff window"} {
-			if !matchingLog(outcomes, "msg=\""+message+"\"", "connect_cluster=test", "connector="+f.name, "task_id=0", "action=restart_task") {
+			if !matchingLog(outcomes, message, "connect_cluster=test", "connector="+f.name, "task_id=0", "action=restart_task") {
 				t.Errorf("missing correlated log for %s", message)
 			}
 		}
 		f.marker(t, "fail-task", false)
 		f.wait(t, "RUNNING", "RUNNING")
 		eventually(t, 5*time.Second, "one observed recovery", func() bool {
-			return matchingLog(logs(t, s.healer), "msg=\"task recovered\"", "connect_cluster=test", "connector="+f.name, "task_id=0")
+			return matchingLog(logs(t, s.healer), "task recovered", "connect_cluster=test", "connector="+f.name, "task_id=0")
 		})
 		remains(t, 1200*time.Millisecond, "healthy task was restarted", func() bool { return f.state("RUNNING", "RUNNING") })
 		before := len(s.attempts(t, f, ""))
 		logOffset := len(logs(t, s.healer))
-		if countMatchingLogs(logs(t, s.healer), "msg=\"task recovered\"", "connector="+f.name) != 1 {
+		if countMatchingLogs(logs(t, s.healer), "task recovered", "connector="+f.name) != 1 {
 			t.Fatal("recovery logged more than once per episode")
 		}
 		f.marker(t, "fail-task", true)
@@ -93,7 +94,7 @@ func TestIntegration(t *testing.T) {
 		}
 		f.marker(t, "fail-connector", false)
 		f.wait(t, "RUNNING", "RUNNING")
-		eventually(t, 5*time.Second, "connector recovery logged", func() bool { return strings.Contains(logs(t, s.healer), "msg=\"connector recovered\"") })
+		eventually(t, 5*time.Second, "connector recovery logged", func() bool { return strings.Contains(logs(t, s.healer), "connector recovered") })
 	})
 	t.Run("PausedAndStoppedConnectors", func(t *testing.T) {
 		s.resetAfter(t)
@@ -152,16 +153,16 @@ func TestIntegration(t *testing.T) {
 		s.resetAfter(t)
 		s.patch(t, `{"pollingBehavior":{"interval":"3s"},"loggingConfig":{"level":"WARN"}}`)
 		settle(t, time.Second)
-		debug := strings.Count(logs(t, s.healer), "level=DEBUG")
+		debug := strings.Count(logs(t, s.healer), " DEBUG ")
 		requestCount := len(s.requests(t))
-		remains(t, time.Second, "WARN level continued DEBUG logs", func() bool { return strings.Count(logs(t, s.healer), "level=DEBUG") == debug })
+		remains(t, time.Second, "WARN level continued DEBUG logs", func() bool { return strings.Count(logs(t, s.healer), " DEBUG ") == debug })
 		if len(s.requests(t))-requestCount > 1 {
 			t.Fatal("poll interval update was not applied")
 		}
 		s.patch(t, `{"pollingBehavior":{"interval":"200ms"},"loggingConfig":{"level":"DEBUG"}}`)
 		requestCount = len(s.requests(t))
 		eventually(t, 5*time.Second, "faster polling and restored DEBUG", func() bool {
-			return len(s.requests(t))-requestCount >= 4 && strings.Count(logs(t, s.healer), "level=DEBUG") > debug
+			return len(s.requests(t))-requestCount >= 4 && strings.Count(logs(t, s.healer), " DEBUG ") > debug
 		})
 	})
 	t.Run("ClusterLifecycle", func(t *testing.T) { testClusterLifecycle(t, s) })
@@ -214,10 +215,10 @@ func testClusterLifecycle(t *testing.T, s *suite) {
 	remains(t, 1500*time.Millisecond, "deleted cluster still polls/restarts", func() bool { return len(s.attempts(t, f, "")) == 0 })
 	s.apiRequest(t, "PUT", "/clusters/test", clusterJSON("connect", "8444", connectPassword), 201)
 	eventually(t, 10*time.Second, "new poller starts", func() bool { return len(s.attempts(t, f, "")) >= 3 })
-	started := strings.Count(logs(t, s.healer), "msg=\"polling started\"")
+	started := strings.Count(logs(t, s.healer), "polling started")
 	s.apiRequest(t, "PUT", "/clusters/test", clusterJSON("connect", "8444", connectPassword), 204)
 	settle(t, 700*time.Millisecond)
-	if strings.Count(logs(t, s.healer), "msg=\"polling started\"") != started {
+	if strings.Count(logs(t, s.healer), "polling started") != started {
 		t.Fatal("identical PUT restarted the poller")
 	}
 	s.apiRequest(t, "PUT", "/clusters/test", clusterJSON("connect", "8444", "wrong-password"), 204)
@@ -227,7 +228,7 @@ func testClusterLifecycle(t *testing.T, s *suite) {
 	s.apiRequest(t, "PUT", "/clusters/test", clusterJSON("connect", "8444", connectPassword), 204)
 	f.marker(t, "fail-task", false)
 	f.wait(t, "RUNNING", "RUNNING")
-	if strings.Count(logs(t, s.healer), "msg=\"polling started\"") < started+2 {
+	if strings.Count(logs(t, s.healer), "polling started") < started+2 {
 		t.Fatal("changed PUT did not replace workers")
 	}
 }

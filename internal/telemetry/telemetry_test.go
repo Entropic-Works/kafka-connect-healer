@@ -99,7 +99,7 @@ func TestOTLPExportAndLogFiltering(t *testing.T) {
 	})
 	var console bytes.Buffer
 	level := new(slog.LevelVar)
-	base := slog.New(slog.NewTextHandler(&console, &slog.HandlerOptions{Level: level}))
+	base := slog.New(logging.NewConsoleHandler(&console, level))
 	slog.SetDefault(base)
 	shutdown, err := telemetry.Start(t.Context())
 	if err != nil {

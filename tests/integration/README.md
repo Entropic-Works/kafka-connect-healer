@@ -96,6 +96,7 @@ own full stack. No scenario requires another scenario to have run first.
 | InvalidSnapshots | Malformed/null/incomplete/500/redirect status responses cause no remediation and preserve attempt history; a valid empty snapshot prunes it |
 | TimeoutTLSAndClusterIsolation | Runtime request timeout, responsive API during slow outbound requests, hostname verification, identical connector names isolated across clusters, independent poller progress, deletion cancels an in-flight request |
 | BrokerOutage | API/config remain usable while the broker is stopped; a restarted broker resumes real record production |
+| ConfigurationLogging | Independent application and cluster summaries after successful API changes; full cluster lists after add, replace, and delete; rejected and unchanged requests stay quiet; credential redaction; immediate INFO/WARN filtering |
 | Telemetry | Received OTLP metrics and logs from the packaged application; service identity; cycle counts and duration per cluster; accepted/error restart requests per cluster, connector, and task; same connector name across clusters; API/health/polling logs; collector outage leaves polling, control API, and health probes working; export resumes after collector restart; disabled telemetry stays silent; shutdown flushes logs before a long batch interval expires |
 | StartupAndShutdown | Defaults, API-only/omitted cluster configuration, application and cluster Secret overlays, invalid/missing YAML startup failure, untrusted Connect certificate rejection, control API bind failure stops polling and exits 1, SIGTERM during an outbound request, clean shutdown, runtime changes lost on restart |
 
@@ -119,3 +120,5 @@ HTTP 409 is injected deterministically rather than relying on rebalance timing.
 The broker outage preserves its container data; it is not a lost-data disaster
 recovery test. Kubernetes manifests are still rendered separately in CI, but
 these tests intentionally do not test Kubernetes scheduling or ConfigMap mounts.
+
+Startup checks cover indented default and Secret-overlay summaries, empty cluster lists, and credential redaction. Telemetry checks verify that startup summaries also reach the Collector as structured records.
