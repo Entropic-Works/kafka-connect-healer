@@ -40,6 +40,16 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 			Functionality: "creates or replaces a Connect cluster and its poller",
 		},
 		{
+			Method:        "PUT",
+			Path:          "/clusters/{name}/start",
+			Functionality: "starts polling a configured Connect cluster",
+		},
+		{
+			Method:        "PUT",
+			Path:          "/clusters/{name}/stop",
+			Functionality: "stops polling a Connect cluster and keeps its definition",
+		},
+		{
 			Method:        "DELETE",
 			Path:          "/clusters/{name}",
 			Functionality: "stops and removes a Connect cluster",

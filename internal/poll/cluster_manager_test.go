@@ -142,6 +142,85 @@ func TestClusterManagerGetClustersReturnsIndependentCopy(t *testing.T) {
 	}
 }
 
+func TestClusterManagerStartStopAndUpdateStoppedCluster(t *testing.T) {
+	manager := newLifecycleTestManager(t)
+	original := connectcluster.DefaultConfiguration()
+	for _, name := range []string{"production", "staging"} {
+		if _, err := manager.PutCluster(name, original); err != nil {
+			t.Fatal(err)
+		}
+	}
+	worker := testWorker(manager, "production")
+	otherWorker := testWorker(manager, "staging")
+	if err := manager.StartCluster("production"); err != nil || testWorker(manager, "production") != worker {
+		t.Fatalf("start replaced an already running poller: %v", err)
+	}
+	for range 2 {
+		if err := manager.StopCluster("production"); err != nil {
+			t.Fatal(err)
+		}
+		waitForWorker(t, worker.done)
+	}
+	if !worker.stopped || manager.GetClusters()["production"] != original || !manager.Ready() {
+		t.Fatal("stop did not retain the definition and readiness")
+	}
+	if _, err := manager.PutCluster("production", original); err != nil || !worker.stopped {
+		t.Fatalf("identical PUT resumed polling: %v", err)
+	}
+	replacement := original
+	replacement.Host = "replacement.local"
+	if created, err := manager.PutCluster("production", replacement); err != nil || created {
+		t.Fatalf("replace stopped cluster = %t, %v", created, err)
+	}
+	if !testWorker(manager, "production").stopped || manager.GetClusters()["production"] != replacement {
+		t.Fatal("replacing a stopped cluster did not preserve its stopped state")
+	}
+	for range 2 {
+		if err := manager.StartCluster("production"); err != nil {
+			t.Fatal(err)
+		}
+		current := testWorker(manager, "production")
+		if current == worker || current.stopped || current.configuration != replacement {
+			t.Fatal("start did not create a poller with the latest definition")
+		}
+		select {
+		case <-current.done:
+			t.Fatal("started poller exited")
+		default:
+		}
+		worker = current
+		// The second start must leave this worker unchanged.
+		if err := manager.StartCluster("production"); err != nil || testWorker(manager, "production") != worker {
+			t.Fatalf("repeated start replaced the poller: %v", err)
+		}
+		if err := manager.StopCluster("production"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if testWorker(manager, "staging") != otherWorker {
+		t.Fatal("start/stop changed another cluster's poller")
+	}
+	select {
+	case <-otherWorker.done:
+		t.Fatal("start/stop stopped another cluster's poller")
+	default:
+	}
+	if err := manager.DeleteCluster("production"); err != nil {
+		t.Fatal(err)
+	}
+	for _, operation := range []func(string) error{manager.StartCluster, manager.StopCluster} {
+		if err := operation("production"); !errors.Is(err, ErrClusterNotFound) {
+			t.Fatalf("operation on deleted cluster = %v", err)
+		}
+	}
+	manager.Close()
+	for _, operation := range []func(string) error{manager.StartCluster, manager.StopCluster} {
+		if err := operation("staging"); !errors.Is(err, ErrClusterManagerClosed) {
+			t.Fatalf("operation on closed manager = %v", err)
+		}
+	}
+}
+
 // Keep worker completion under test control to verify lifecycle ordering without
 // sleeps or relying on how quickly an HTTP request reacts to cancellation.
 func installStoppingWorker(t *testing.T, manager *ClusterManager) (*clusterWorker, <-chan struct{}, func()) {
@@ -234,40 +313,104 @@ func TestDeleteClusterWaitsForWorkerExit(t *testing.T) {
 	}
 }
 
-func TestDeleteClusterCancelsInFlightStatusRequest(t *testing.T) {
-	requestStarted := make(chan struct{})
-	requestCanceled := make(chan struct{})
-	var startedOnce, canceledOnce sync.Once
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		startedOnce.Do(func() { close(requestStarted) })
-		<-r.Context().Done()
-		canceledOnce.Do(func() { close(requestCanceled) })
-	}))
-	t.Cleanup(server.Close)
-	serverURL, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatal(err)
+func TestStopClusterWaitsForWorkerExit(t *testing.T) {
+	manager := newLifecycleTestManager(t)
+	worker, stopRequested, finishWorker := installStoppingWorker(t, manager)
+	result := make(chan error, 1)
+	go func() { result <- manager.StopCluster("production") }()
+	waitForWorker(t, stopRequested)
+	select {
+	case <-result:
+		t.Fatal("stop returned before the worker exited")
+	default:
 	}
-	configuration := config.DefaultConfiguration()
-	configuration.PollingBehavior.Interval = config.Duration(5 * time.Millisecond)
-	configuration.CommunicationConfig.RequestTimeout = config.Duration(time.Hour)
-	manager, err := NewClusterManager(t.Context(), config.NewManager(configuration), nil)
-	if err != nil {
-		t.Fatal(err)
+	if manager.GetClusters()["production"] != worker.configuration || !manager.Ready() {
+		t.Fatal("stop changed the definition or readiness while waiting")
 	}
-	t.Cleanup(manager.Close)
-	if _, err := manager.PutCluster("production", connectcluster.Configuration{
-		Host: serverURL.Hostname(), Port: serverURL.Port(),
-	}); err != nil {
-		t.Fatal(err)
+	finishWorker()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stop did not finish after the worker exited")
 	}
-	waitForWorker(t, requestStarted)
-	worker := testWorker(manager, "production")
-	if err := manager.DeleteCluster("production"); err != nil {
-		t.Fatal(err)
+	if !worker.stopped || testWorker(manager, "production") != worker {
+		t.Fatal("stop did not retain the stopped worker")
 	}
-	waitForWorker(t, requestCanceled)
-	waitForWorker(t, worker.done)
+}
+
+func TestClusterManagerCancelsInFlightStatusRequest(t *testing.T) {
+	for _, operation := range []string{"stop", "delete"} {
+		t.Run(operation, func(t *testing.T) {
+			requestStarted := make(chan struct{})
+			requestCanceled := make(chan struct{})
+			var startedOnce, canceledOnce sync.Once
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				startedOnce.Do(func() { close(requestStarted) })
+				<-r.Context().Done()
+				canceledOnce.Do(func() { close(requestCanceled) })
+			}))
+			t.Cleanup(server.Close)
+			serverURL, err := url.Parse(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			configuration := config.DefaultConfiguration()
+			configuration.PollingBehavior.Interval = config.Duration(5 * time.Millisecond)
+			configuration.CommunicationConfig.RequestTimeout = config.Duration(time.Hour)
+			manager, err := NewClusterManager(t.Context(), config.NewManager(configuration), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(manager.Close)
+			if _, err := manager.PutCluster("production", connectcluster.Configuration{
+				Host: serverURL.Hostname(), Port: serverURL.Port(),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			waitForWorker(t, requestStarted)
+			worker := testWorker(manager, "production")
+			stop := manager.StopCluster
+			if operation == "delete" {
+				stop = manager.DeleteCluster
+			}
+			if err := stop("production"); err != nil {
+				t.Fatal(err)
+			}
+			waitForWorker(t, requestCanceled)
+			waitForWorker(t, worker.done)
+			if operation == "delete" {
+				return
+			}
+			if len(manager.GetClusters()) != 1 {
+				t.Fatal("stop removed the cluster definition")
+			}
+			resumedRequest := make(chan struct{}, 1)
+			resumedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				select {
+				case resumedRequest <- struct{}{}:
+				default:
+				}
+				io.WriteString(w, `{}`)
+			}))
+			t.Cleanup(resumedServer.Close)
+			resumedURL, err := url.Parse(resumedServer.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := manager.PutCluster("production", connectcluster.Configuration{
+				Host: resumedURL.Hostname(), Port: resumedURL.Port(),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := manager.StartCluster("production"); err != nil {
+				t.Fatal(err)
+			}
+			waitForWorker(t, resumedRequest)
+		})
+	}
 }
 
 func TestClusterManagerCloseStopsWorkersAndRejectsChanges(t *testing.T) {
@@ -346,9 +489,9 @@ func TestNewClusterManagerRejectsInvalidInitialDefinitionsAndCanceledContext(t *
 func TestClusterManagerConcurrentLifecycleOperations(t *testing.T) {
 	manager := newLifecycleTestManager(t)
 	start := make(chan struct{})
-	operationErrors := make(chan error, 30)
+	operationErrors := make(chan error, 50)
 	var operations sync.WaitGroup
-	for operation := range 3 {
+	for operation := range 5 {
 		operations.Go(func() {
 			<-start
 			for iteration := range 10 {
@@ -364,6 +507,10 @@ func TestClusterManagerConcurrentLifecycleOperations(t *testing.T) {
 				case 2:
 					snapshot := manager.GetClusters()
 					delete(snapshot, name)
+				case 3:
+					operationErrors <- manager.StartCluster(name)
+				case 4:
+					operationErrors <- manager.StopCluster(name)
 				}
 			}
 		})

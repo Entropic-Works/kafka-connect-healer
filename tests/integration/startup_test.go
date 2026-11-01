@@ -28,7 +28,16 @@ func testStartup(t *testing.T, s *suite) {
 		if code != 200 || !strings.Contains(string(data), `"interval":"10s"`) || !strings.Contains(string(data), `"restartFailedTasks":true`) {
 			t.Fatalf("defaults were not loaded: %d %s", code, data)
 		}
-		if strings.Contains(logs(t, app), "msg=\"polling started\"") {
+		output := logs(t, app)
+		for _, header := range []string{" INFO  Application configuration initialized\n", " INFO  Connect clusters initialized\n"} {
+			if strings.Count(output, header) != 1 {
+				t.Fatalf("expected one startup summary %q: %s", header, output)
+			}
+		}
+		if !strings.Contains(output, "    Application:\n") || !strings.Contains(output, "    Connect clusters:\n        Count: 0") {
+			t.Fatalf("missing indented defaults: %s", output)
+		}
+		if strings.Contains(logs(t, app), "polling started") {
 			t.Fatal("API-only application started a poller")
 		}
 	})
@@ -56,6 +65,17 @@ func testStartup(t *testing.T, s *suite) {
 		code, data, _ := request(s.client, "GET", address+"/config", nil, apiUsername, apiPassword, "")
 		if code != 200 || !strings.Contains(string(data), `"exponential":false`) || strings.Contains(string(data), apiPassword) {
 			t.Fatalf("overlay did not preserve explicit false/redaction: %d %s", code, data)
+		}
+		output := logs(t, app)
+		for _, field := range []string{"API authentication: enabled", "Exponential: disabled", "Endpoint: https://connect:8444", "TLS verification: enabled (system trust store)"} {
+			if !strings.Contains(output, field) {
+				t.Errorf("missing merged setting %q: %s", field, output)
+			}
+		}
+		for _, secret := range []string{apiUsername, apiPassword, connectUsername, connectPassword} {
+			if strings.Contains(output, secret) {
+				t.Fatal("startup logs exposed credentials")
+			}
 		}
 		f := s.connector(t, s.primary, 1)
 		f.marker(t, "fail-connector", true)
@@ -101,7 +121,7 @@ func testStartup(t *testing.T, s *suite) {
 				if state.ExitCode != 1 || state.Running {
 					t.Fatalf("bad startup should exit 1, got %+v", state)
 				}
-				// Errors before logging.Configure use slog's default text format.
+				// Configuration errors must fail before any servers start.
 				if !strings.Contains(logs(t, app), "ERROR") || strings.Contains(logs(t, app), "starting API server") {
 					t.Fatal("invalid configuration did not fail before startup")
 				}

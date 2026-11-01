@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 
@@ -22,6 +24,7 @@ type clusterWorker struct {
 	configuration connectcluster.Configuration
 	cancel        context.CancelFunc
 	done          chan struct{}
+	stopped       bool // Accessed only while holding lifecycleMutex.
 }
 
 // ClusterManager owns cluster definitions and their polling goroutines.
@@ -51,6 +54,7 @@ func NewClusterManager(applicationContext context.Context, configurationManager 
 	for name, configuration := range clusters {
 		manager.clusterWorkers[name] = manager.startCluster(name, configuration)
 	}
+	manager.logClusters("Connect clusters initialized")
 	return manager, nil
 }
 
@@ -72,7 +76,8 @@ func (manager *ClusterManager) Ready() bool {
 	return !manager.closed && manager.applicationContext.Err() == nil
 }
 
-// PutCluster replaces one complete definition. Identical definitions are a no-op.
+// PutCluster replaces one complete definition, preserving whether polling is
+// stopped. Identical definitions are a no-op.
 func (manager *ClusterManager) PutCluster(name string, configuration connectcluster.Configuration) (bool, error) {
 	if err := validateCluster(name, configuration); err != nil {
 		return false, err
@@ -96,11 +101,54 @@ func (manager *ClusterManager) PutCluster(name string, configuration connectclus
 		return false, ErrClusterManagerClosed
 	}
 	manager.clustersMutex.Lock()
-	manager.clusterWorkers[name] = manager.startCluster(name, configuration)
+	if exists && previous.stopped {
+		previous.configuration = configuration
+	} else {
+		manager.clusterWorkers[name] = manager.startCluster(name, configuration)
+	}
 	manager.clustersMutex.Unlock()
 	connectcluster.WarnDuplicateEndpoints(manager.GetClusters())
-	slog.Info("Connect cluster configured", "connect_cluster", name, "created", !exists)
+	manager.logClusters("Connect cluster configured", slog.String("connect_cluster", name), slog.Bool("created", !exists))
 	return !exists, nil
+}
+
+// StartCluster starts polling a configured cluster. Already running clusters
+// are unchanged; stopped clusters start with a fresh client and backoff history.
+func (manager *ClusterManager) StartCluster(name string) error {
+	return manager.setClusterPolling(name, true)
+}
+
+// StopCluster cancels polling and waits for it to exit, retaining the definition.
+// Stopping an already stopped cluster is a no-op.
+func (manager *ClusterManager) StopCluster(name string) error {
+	return manager.setClusterPolling(name, false)
+}
+
+func (manager *ClusterManager) setClusterPolling(name string, pollingEnabled bool) error {
+	manager.lifecycleMutex.Lock()
+	defer manager.lifecycleMutex.Unlock()
+	if manager.closed || manager.applicationContext.Err() != nil {
+		return ErrClusterManagerClosed
+	}
+	manager.clustersMutex.RLock()
+	worker, exists := manager.clusterWorkers[name]
+	manager.clustersMutex.RUnlock()
+	if !exists {
+		return ErrClusterNotFound
+	}
+	if pollingEnabled == !worker.stopped {
+		return nil
+	}
+	if pollingEnabled {
+		manager.clustersMutex.Lock()
+		manager.clusterWorkers[name] = manager.startCluster(name, worker.configuration)
+		manager.clustersMutex.Unlock()
+	} else {
+		worker.cancel()
+		<-worker.done
+		worker.stopped = true
+	}
+	return nil
 }
 
 func (manager *ClusterManager) DeleteCluster(name string) error {
@@ -120,7 +168,7 @@ func (manager *ClusterManager) DeleteCluster(name string) error {
 	manager.clustersMutex.Lock()
 	delete(manager.clusterWorkers, name)
 	manager.clustersMutex.Unlock()
-	slog.Info("Connect cluster removed", "connect_cluster", name)
+	manager.logClusters("Connect cluster removed", slog.String("connect_cluster", name))
 	return nil
 }
 
@@ -169,4 +217,19 @@ func validateCluster(name string, configuration connectcluster.Configuration) er
 		return fmt.Errorf("cluster name must not be empty")
 	}
 	return connectcluster.ValidateConfiguration(configuration)
+}
+
+// logClusters is called while lifecycle changes are serialized. GetClusters
+// returns a copy, so formatting never holds the cluster definitions lock.
+func (manager *ClusterManager) logClusters(message string, attributes ...slog.Attr) {
+	clusters := manager.GetClusters()
+	definitions := make([]slog.Attr, 0, len(clusters))
+	for _, name := range slices.Sorted(maps.Keys(clusters)) {
+		definitions = append(definitions, slog.Any(name, clusters[name]))
+	}
+	attributes = append(attributes, slog.Group("Connect clusters",
+		slog.Int("Count", len(clusters)),
+		slog.GroupAttrs("Definitions", definitions...),
+	))
+	slog.LogAttrs(manager.applicationContext, slog.LevelInfo, message, attributes...)
 }

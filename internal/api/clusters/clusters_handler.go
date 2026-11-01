@@ -80,7 +80,19 @@ func (handler *ClustersHandler) PutCluster(w http.ResponseWriter, r *http.Reques
 }
 
 func (handler *ClustersHandler) DeleteCluster(w http.ResponseWriter, r *http.Request) {
-	if err := handler.manager.DeleteCluster(r.PathValue("name")); err != nil {
+	writeClusterLifecycleResponse(w, handler.manager.DeleteCluster(r.PathValue("name")))
+}
+
+func (handler *ClustersHandler) StartCluster(w http.ResponseWriter, r *http.Request) {
+	writeClusterLifecycleResponse(w, handler.manager.StartCluster(r.PathValue("name")))
+}
+
+func (handler *ClustersHandler) StopCluster(w http.ResponseWriter, r *http.Request) {
+	writeClusterLifecycleResponse(w, handler.manager.StopCluster(r.PathValue("name")))
+}
+
+func writeClusterLifecycleResponse(w http.ResponseWriter, err error) {
+	if err != nil {
 		status := http.StatusServiceUnavailable
 		if errors.Is(err, poll.ErrClusterNotFound) {
 			status = http.StatusNotFound

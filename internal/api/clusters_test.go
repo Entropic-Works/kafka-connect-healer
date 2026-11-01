@@ -33,10 +33,21 @@ func TestClusterRoutesOverHTTP(t *testing.T) {
 		{method: http.MethodGet, path: "/clusters", status: http.StatusOK},
 		{method: http.MethodPut, path: clusterPath, body: `{"host":"localhost","port":"8083"}`, status: http.StatusCreated, location: clusterPath},
 		{method: http.MethodPut, path: clusterPath, body: `{"host":"localhost","port":"8083"}`, status: http.StatusNoContent},
+		{method: http.MethodPut, path: clusterPath + "/start", status: http.StatusNoContent},
+		{method: http.MethodPut, path: clusterPath + "/stop", status: http.StatusNoContent},
+		{method: http.MethodPut, path: clusterPath + "/stop", status: http.StatusNoContent},
 		{method: http.MethodGet, path: "/clusters", status: http.StatusOK},
 		{method: http.MethodPut, path: clusterPath, body: `{"host":"replacement.local","port":"8084"}`, status: http.StatusNoContent},
+		{method: http.MethodPut, path: clusterPath + "/start", status: http.StatusNoContent},
+		{method: http.MethodPut, path: clusterPath + "/start", status: http.StatusNoContent},
+		{method: http.MethodPut, path: clusterPath + "/stop", status: http.StatusNoContent},
 		{method: http.MethodDelete, path: clusterPath, status: http.StatusNoContent},
 		{method: http.MethodDelete, path: clusterPath, status: http.StatusNotFound},
+		{method: http.MethodPut, path: clusterPath + "/start", status: http.StatusNotFound},
+		{method: http.MethodPut, path: clusterPath + "/stop", status: http.StatusNotFound},
+		{method: http.MethodPost, path: clusterPath + "/start", status: http.StatusMethodNotAllowed},
+		{method: http.MethodGet, path: clusterPath + "/stop", status: http.StatusMethodNotAllowed},
+		{method: http.MethodPut, path: clusterPath + "/pause", status: http.StatusNotFound},
 		{method: http.MethodPost, path: "/clusters", status: http.StatusMethodNotAllowed},
 		{method: http.MethodGet, path: clusterPath, status: http.StatusMethodNotAllowed},
 	} {
@@ -44,7 +55,9 @@ func TestClusterRoutesOverHTTP(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		request.Header.Set("Content-Type", "application/json")
+		if test.body != "" {
+			request.Header.Set("Content-Type", "application/json")
+		}
 		response, err := client.Do(request)
 		if err != nil {
 			t.Fatal(err)
@@ -70,8 +83,14 @@ func TestClusterRoutesOverHTTP(t *testing.T) {
 }
 
 func TestClusterRouteAuthenticationPreventsChanges(t *testing.T) {
-	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
-		t.Run(method, func(t *testing.T) {
+	for _, operation := range []struct{ method, path string }{
+		{http.MethodGet, "/clusters"},
+		{http.MethodPut, "/clusters/production"},
+		{http.MethodDelete, "/clusters/production"},
+		{http.MethodPut, "/clusters/production/start"},
+		{http.MethodPut, "/clusters/production/stop"},
+	} {
+		t.Run(operation.method+" "+operation.path, func(t *testing.T) {
 			configuration := config.DefaultConfiguration()
 			configuration.PollingBehavior.Interval = config.Duration(time.Hour)
 			configuration.APIConfig.AuthConfig = config.AuthConfiguration{Enabled: true, Username: "user", Password: "secret"}
@@ -83,12 +102,8 @@ func TestClusterRouteAuthenticationPreventsChanges(t *testing.T) {
 			}
 			t.Cleanup(clusterManager.Close)
 			server := NewServer(Components{ConfigurationManager: configurationManager, ClusterManager: clusterManager})
-			path := "/clusters/production"
-			if method == http.MethodGet {
-				path = "/clusters"
-			}
 			for _, authenticated := range []bool{false, true} {
-				request := httptest.NewRequest(method, path, strings.NewReader(`{"host":"replacement.local","port":"8084"}`))
+				request := httptest.NewRequest(operation.method, operation.path, strings.NewReader(`{"host":"replacement.local","port":"8084"}`))
 				request.Header.Set("Content-Type", "application/json")
 				if authenticated {
 					request.SetBasicAuth("user", "secret")
@@ -100,7 +115,7 @@ func TestClusterRouteAuthenticationPreventsChanges(t *testing.T) {
 						t.Fatal("unauthenticated cluster request was allowed or changed configuration")
 					}
 				} else if response.Code != http.StatusOK && response.Code != http.StatusNoContent {
-					t.Fatalf("authenticated %s = %d: %s", method, response.Code, response.Body.String())
+					t.Fatalf("authenticated %s = %d: %s", operation.method, response.Code, response.Body.String())
 				}
 			}
 		})
