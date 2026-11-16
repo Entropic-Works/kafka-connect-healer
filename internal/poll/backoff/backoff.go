@@ -34,22 +34,21 @@ func (backoffFilter *Filter) ResetBackoffStatus(connectorName string, taskID *in
 }
 
 func (backoffFilter *Filter) IsInBackoffWindow(connectorName string, taskID *int) bool {
-	backoffStatus := backoffFilter.getBackoffStatus(connectorName, taskID)
+	return time.Now().Before(backoffFilter.NextAttemptTime(connectorName, taskID))
+}
 
-	nextBackoffTime := determineNextActionTime(
+func (backoffFilter *Filter) NextAttemptTime(connectorName string, taskID *int) time.Time {
+	backoffStatus := backoffFilter.getBackoffStatus(connectorName, taskID)
+	if backoffStatus.LastAttemptTime.IsZero() {
+		return time.Time{}
+	}
+	return determineNextActionTime(
 		backoffStatus.LastAttemptTime,
 		backoffFilter.BackoffConfig.BaseDelay.Duration(),
 		backoffFilter.BackoffConfig.MaxDelay.Duration(),
 		backoffStatus.Attempts,
 		backoffFilter.BackoffConfig.Exponential,
 	)
-	if backoffStatus.LastAttemptTime.IsZero() {
-		return false
-	} else if time.Now().Before(nextBackoffTime) {
-		return true
-	} else {
-		return false
-	}
 }
 
 func (backoffFilter *Filter) getBackoffStatus(
