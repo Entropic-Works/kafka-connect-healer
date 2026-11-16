@@ -118,6 +118,7 @@ func TestOTLPExportAndLogFiltering(t *testing.T) {
 	}
 	metrics.RecordCycle(t.Context(), time.Now(), "success")
 	metrics.RecordRestart(t.Context(), actions.RemediationAction{ConnectorName: "orders", Kind: actions.RestartConnector}, "accepted")
+	metrics.RecordNextAttemptTime(t.Context(), actions.RemediationAction{ConnectorName: "orders", Kind: actions.RestartConnector}, time.Unix(1800000000, 123000000))
 	slog.SetDefault(logging.WithTelemetry(base))
 	slog.Info("application started")
 	slog.With("component", "api").Info("API started")
@@ -141,7 +142,7 @@ func TestOTLPExportAndLogFiltering(t *testing.T) {
 	}
 	mutex.Lock()
 	defer mutex.Unlock()
-	for _, name := range []string{"healer.poll.cycles", "healer.poll.duration", "healer.restart.requests"} {
+	for _, name := range []string{"healer.poll.cycles", "healer.poll.duration", "healer.restart.requests", "healer.restart.next_attempt_time"} {
 		if !metricsSeen[name] {
 			t.Errorf("metric %s was not exported", name)
 		}
@@ -171,9 +172,15 @@ func TestMetricsSeparateClustersConnectorsAndTasks(t *testing.T) {
 		}
 		metrics.RecordCycle(t.Context(), time.Now(), "success")
 		for _, connector := range []string{"orders", "payments"} {
+			nextAttempt := time.Unix(1800000000, 123000000)
+			if connector == "payments" {
+				nextAttempt = time.Time{}
+			}
 			metrics.RecordRestart(t.Context(), actions.RemediationAction{ConnectorName: connector, Kind: actions.RestartConnector}, "accepted")
+			metrics.RecordNextAttemptTime(t.Context(), actions.RemediationAction{ConnectorName: connector, Kind: actions.RestartConnector}, nextAttempt)
 			for _, taskID := range []int{0, 7} {
 				metrics.RecordRestart(t.Context(), actions.RemediationAction{ConnectorName: connector, Kind: actions.RestartTask, TaskID: taskID}, "accepted")
+				metrics.RecordNextAttemptTime(t.Context(), actions.RemediationAction{ConnectorName: connector, Kind: actions.RestartTask, TaskID: taskID}, nextAttempt)
 			}
 		}
 	}
@@ -208,12 +215,37 @@ func TestMetricsSeparateClustersConnectorsAndTasks(t *testing.T) {
 						t.Fatalf("unexpected task ID attribute: %v", point)
 					}
 				}
+			case "healer.restart.next_attempt_time":
+				points := metric.Data.(metricdata.Gauge[float64]).DataPoints
+				seen[metric.Name] = len(points)
+				if metric.Unit != "s" {
+					t.Fatalf("timestamp unit = %q, want s", metric.Unit)
+				}
+				for _, point := range points {
+					connector, _ := point.Attributes.Value("connector")
+					want := 1800000000.123
+					if connector.AsString() == "payments" {
+						want = 0
+					}
+					if point.Value != want {
+						t.Fatalf("next attempt = %v, want Unix timestamp %v", point.Value, want)
+					}
+					action, _ := point.Attributes.Value("action")
+					taskID, hasTaskID := point.Attributes.Value("task_id")
+					attributes := 3
+					if hasTaskID {
+						attributes++
+					}
+					if point.Attributes.Len() != attributes || hasTaskID != (action.AsString() == "restart_task") || (hasTaskID && taskID.AsInt64() != 0 && taskID.AsInt64() != 7) {
+						t.Fatalf("unexpected timestamp attributes: %v", point)
+					}
+				}
 			default:
 				t.Errorf("unexpected metric %s", metric.Name)
 			}
 		}
 	}
-	if seen["healer.poll.cycles"] != 2 || seen["healer.poll.duration"] != 2 || seen["healer.restart.requests"] != 12 {
+	if seen["healer.poll.cycles"] != 2 || seen["healer.poll.duration"] != 2 || seen["healer.restart.requests"] != 12 || seen["healer.restart.next_attempt_time"] != 12 {
 		t.Fatalf("metric series counts = %v", seen)
 	}
 }

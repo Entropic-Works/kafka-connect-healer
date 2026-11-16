@@ -13,10 +13,11 @@ import (
 
 // PollMetrics belongs to one poller. A nil receiver disables instrumentation.
 type PollMetrics struct {
-	cluster  attribute.KeyValue
-	cycles   metric.Int64Counter
-	duration metric.Float64Histogram
-	restarts metric.Int64Counter
+	cluster     attribute.KeyValue
+	cycles      metric.Int64Counter
+	duration    metric.Float64Histogram
+	restarts    metric.Int64Counter
+	nextAttempt metric.Float64Gauge
 }
 
 func NewPollMetrics(cluster string) (*PollMetrics, error) {
@@ -27,10 +28,12 @@ func NewPollMetrics(cluster string) (*PollMetrics, error) {
 		metric.WithDescription("Time spent retrieving statuses and attempting remediation"))
 	restarts, restartsErr := meter.Int64Counter("healer.restart.requests",
 		metric.WithDescription("Restart requests attempted, not confirmed recoveries"))
-	if err := errors.Join(cyclesErr, durationErr, restartsErr); err != nil {
+	nextAttempt, nextAttemptErr := meter.Float64Gauge("healer.restart.next_attempt_time", metric.WithUnit("s"),
+		metric.WithDescription("Unix timestamp when restart backoff permits the next attempt, or zero without a deadline"))
+	if err := errors.Join(cyclesErr, durationErr, restartsErr, nextAttemptErr); err != nil {
 		return nil, err
 	}
-	return &PollMetrics{cluster: attribute.String("connect_cluster", cluster), cycles: cycles, duration: duration, restarts: restarts}, nil
+	return &PollMetrics{cluster: attribute.String("connect_cluster", cluster), cycles: cycles, duration: duration, restarts: restarts, nextAttempt: nextAttempt}, nil
 }
 
 func (metrics *PollMetrics) RecordCycle(ctx context.Context, started time.Time, outcome string) {
@@ -46,10 +49,25 @@ func (metrics *PollMetrics) RecordRestart(ctx context.Context, action actions.Re
 	if metrics == nil {
 		return
 	}
-	attributes := []attribute.KeyValue{metrics.cluster, attribute.String("connector", action.ConnectorName),
-		attribute.String("action", string(action.Kind)), attribute.String("outcome", outcome)}
+	attributes := append(metrics.actionAttributes(action), attribute.String("outcome", outcome))
+	metrics.restarts.Add(ctx, 1, metric.WithAttributes(attributes...))
+}
+
+func (metrics *PollMetrics) RecordNextAttemptTime(ctx context.Context, action actions.RemediationAction, nextAttempt time.Time) {
+	if metrics == nil {
+		return
+	}
+	var timestamp float64
+	if !nextAttempt.IsZero() {
+		timestamp = float64(nextAttempt.UnixMilli()) / 1000
+	}
+	metrics.nextAttempt.Record(ctx, timestamp, metric.WithAttributes(metrics.actionAttributes(action)...))
+}
+
+func (metrics *PollMetrics) actionAttributes(action actions.RemediationAction) []attribute.KeyValue {
+	attributes := []attribute.KeyValue{metrics.cluster, attribute.String("connector", action.ConnectorName), attribute.String("action", string(action.Kind))}
 	if action.Kind == actions.RestartTask {
 		attributes = append(attributes, attribute.Int("task_id", action.TaskID))
 	}
-	metrics.restarts.Add(ctx, 1, metric.WithAttributes(attributes...))
+	return attributes
 }
