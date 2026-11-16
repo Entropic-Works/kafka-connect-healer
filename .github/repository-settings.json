@@ -2,7 +2,7 @@
   "description": "Automatically restarts failed Kafka Connect connectors and tasks across multiple clusters, with configurable backoff and an HTTP configuration API.",
   "default_branch": "main",
   "allow_merge_commit": true,
-  "allow_squash_merge": false,
+  "allow_squash_merge": true,
   "allow_rebase_merge": false,
   "delete_branch_on_merge": false,
   "allow_update_branch": true,

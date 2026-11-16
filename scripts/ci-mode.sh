@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Metadata-only edits reuse verified full CI without canceling or rerunning tests.
+# Compare canonical marker lines, so a browser changing LF/CRLF is metadata only.
 case "${GITHUB_EVENT_NAME:?}" in
   pull_request)
     if jq -e '
+      def markers: gsub("\r\n"; "\n") | [scan("(?m)^<!-- promotion-source: [0-9a-f]{40} -->$")];
       .action == "edited" and (.changes | has("base") | not) and
-      (([ (if (.changes | has("body")) then (.changes.body.from // "") else (.pull_request.body // "") end)
-           | scan("(?m)^<!-- promotion-source: [0-9a-f]{40} -->$") ]) ==
-       ([ (.pull_request.body // "") | scan("(?m)^<!-- promotion-source: [0-9a-f]{40} -->$") ]))
+      (((if (.changes | has("body")) then (.changes.body.from // "") else (.pull_request.body // "") end) | markers) ==
+       ((.pull_request.body // "") | markers))
     ' "${GITHUB_EVENT_PATH:?}" >/dev/null; then
-      echo ignore
+      echo metadata
     else
       echo full
     fi

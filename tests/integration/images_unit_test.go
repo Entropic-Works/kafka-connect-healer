@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -43,7 +45,8 @@ func TestBuildTestImages(t *testing.T) {
 			}
 			directory := buildInputs(t)
 			var steps []string
-			var commands [][]string
+			commands := make(map[string][]string)
+			var commandMutex sync.Mutex
 			err := buildTestImages(t.Context(), directory, func(ctx context.Context, actualDirectory, step string, arguments ...string) ([]byte, error) {
 				if actualDirectory != directory {
 					t.Errorf("working directory: got %q, want %q", actualDirectory, directory)
@@ -56,24 +59,26 @@ func TestBuildTestImages(t *testing.T) {
 				if !exists || time.Until(deadline) <= 0 || time.Until(deadline) > limit {
 					t.Errorf("%s has no bounded %v deadline: %v", step, limit, deadline)
 				}
+				commandMutex.Lock()
 				steps = append(steps, step)
-				commands = append(commands, slices.Clone(arguments))
+				commands[step] = slices.Clone(arguments)
+				commandMutex.Unlock()
 				return nil, nil
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !slices.Equal(steps, []string{"docker-info", "build-healer", "build-connect"}) {
+			if len(steps) != 3 || steps[0] != "docker-info" {
 				t.Fatalf("unexpected preparation order: %v", steps)
 			}
-			want := [][]string{
-				{"info", "--format", "{{.ServerVersion}}"},
-				{"build", "--progress=plain", "--tag", healerTag, "--file", "Dockerfile", "."},
-				{"build", "--progress=plain", "--tag", connectTag, "--file", "tests/integration/testdata/Dockerfile.connect", "tests/integration/testdata"},
+			want := map[string][]string{
+				"docker-info":   {"info", "--format", "{{.ServerVersion}}"},
+				"build-healer":  {"build", "--progress=plain", "--tag", healerTag, "--file", "Dockerfile", "."},
+				"build-connect": {"build", "--progress=plain", "--tag", connectTag, "--file", "tests/integration/testdata/Dockerfile.connect", "tests/integration/testdata"},
 			}
-			for index := range want {
-				if !slices.Equal(commands[index], want[index]) {
-					t.Errorf("%s command: got %v, want %v", steps[index], commands[index], want[index])
+			for step := range want {
+				if !slices.Equal(commands[step], want[step]) {
+					t.Errorf("%s command: got %v, want %v", step, commands[step], want[step])
 				}
 			}
 		})
@@ -81,12 +86,12 @@ func TestBuildTestImages(t *testing.T) {
 }
 
 func TestBuildTestImagesStopsOnFailure(t *testing.T) {
-	for index, failedStep := range []string{"docker-info", "build-healer", "build-connect"} {
+	for _, failedStep := range []string{"docker-info", "build-healer", "build-connect"} {
 		t.Run(failedStep, func(t *testing.T) {
 			sentinel := errors.New("command failed")
-			calls := 0
+			var calls atomic.Int32
 			err := buildTestImages(t.Context(), buildInputs(t), func(_ context.Context, _, step string, _ ...string) ([]byte, error) {
-				calls++
+				calls.Add(1)
 				if step == failedStep {
 					return []byte("useful Docker failure output"), sentinel
 				}
@@ -95,8 +100,8 @@ func TestBuildTestImagesStopsOnFailure(t *testing.T) {
 			if !errors.Is(err, sentinel) || !strings.Contains(err.Error(), "useful Docker failure output") {
 				t.Fatalf("lost build failure or its diagnostics: %v", err)
 			}
-			if calls != index+1 {
-				t.Fatalf("continued building after %s failed: %d calls", failedStep, calls)
+			if failedStep == "docker-info" && calls.Load() != 1 {
+				t.Fatalf("built images after daemon check failed: %d calls", calls.Load())
 			}
 			if failedStep == "docker-info" && !strings.Contains(err.Error(), "running Docker daemon") {
 				t.Fatalf("missing actionable Docker prerequisite error: %v", err)
@@ -145,6 +150,43 @@ func TestBuildTestImagesCancellation(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+func TestBuildTestImagesOverlapAndCancelOnFailure(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	otherBuildStarted := make(chan struct{})
+	otherBuildCanceled := make(chan struct{})
+	sentinel := errors.New("application build failed")
+	err := buildTestImages(ctx, buildInputs(t), func(commandCtx context.Context, _, step string, _ ...string) ([]byte, error) {
+		switch step {
+		case "docker-info":
+			return nil, nil
+		case "build-healer":
+			select {
+			case <-otherBuildStarted:
+				return []byte("compiler diagnostics"), sentinel
+			case <-commandCtx.Done():
+				return nil, commandCtx.Err()
+			}
+		case "build-connect":
+			close(otherBuildStarted)
+			<-commandCtx.Done()
+			close(otherBuildCanceled)
+			return nil, commandCtx.Err()
+		default:
+			t.Errorf("unexpected step %s", step)
+			return nil, nil
+		}
+	})
+	if !errors.Is(err, sentinel) || !strings.Contains(err.Error(), "compiler diagnostics") {
+		t.Fatalf("independent builds did not overlap or original failure was lost: %v", err)
+	}
+	select {
+	case <-otherBuildCanceled:
+	default:
+		t.Fatal("failed build did not cancel and await the other build")
+	}
 }
 
 func TestBuildTestImagesRejectsWrongDirectory(t *testing.T) {
