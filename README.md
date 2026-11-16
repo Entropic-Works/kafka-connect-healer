@@ -449,6 +449,7 @@ Every metric has a `connect_cluster` attribute:
 | `healer.poll.cycles` | Counter | `outcome=success\|error\|canceled` |
 | `healer.poll.duration` | Histogram, seconds | `outcome` |
 | `healer.restart.requests` | Counter | `connector`, `action`, `task_id` (task restarts only), `outcome=accepted\|error\|canceled` |
+| `healer.restart.next_attempt_time` | Gauge, Unix seconds | `connector`, `action`, `task_id` (task restarts only) |
 
 A cycle succeeds when status retrieval and all attempted restarts complete without
 error. Failed connectors and backoff skips do not themselves make a cycle fail.
@@ -461,6 +462,13 @@ count as errors.
 
 Counters retain process-lifetime history for each cluster name. Cycle rates,
 error counts, and missing-data alerts can be used to monitor polling activity.
+
+`healer.restart.next_attempt_time` records the backoff deadline after each poll
+with a valid status snapshot. It is zero when no attempt history exists, after
+observed recovery, or when backoff is disabled; task values are also zero when
+task restarts are disabled. Calculate remaining seconds in your telemetry platform
+as `max(0, next_attempt_time - current Unix time)`. The timestamp indicates restart
+eligibility; actual requests also depend on polling and request execution.
 
 Metrics export periodically and logs export in batches using bounded buffering.
 Startup does not check destination connectivity or credentials. With no endpoint
