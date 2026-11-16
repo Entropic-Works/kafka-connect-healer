@@ -11,7 +11,7 @@ Polls the REST APIs of named Kafka Connect clusters and restarts failed connecto
 
 ## Run
 
-Requires Go 1.27.3 or later.
+Requires Go 1.27.4 or later.
 
 Clone the repository first:
 
@@ -85,7 +85,7 @@ Build a standalone binary with Go, or build a container image with the project's
 Dockerfile.
 
 Clone the repository as shown above and check out the release tag or commit you
-have reviewed. Use Go 1.27.3 or later, as required by `go.mod`. For consistent builds,
+have reviewed. Use Go 1.27.4 or later, as required by `go.mod`. For consistent builds,
 use the same Go version across your build machines.
 
 Build for the current machine (commands below use a POSIX shell):
@@ -154,7 +154,7 @@ Build the image:
 docker build -t kafka-connect-healer:local .
 ```
 
-The build uses Go 1.27.3 and downloads and verifies dependencies in a separate
+The build uses Go 1.27.4 and downloads and verifies dependencies in a separate
 Docker layer. Changes to application code reuse that layer; changes to `go.mod`
 or `go.sum` refresh it. Compilation and license collection then run with networking
 disabled. The final `scratch` image contains only the stripped, statically linked
@@ -449,6 +449,7 @@ Every metric has a `connect_cluster` attribute:
 | `healer.poll.cycles` | Counter | `outcome=success\|error\|canceled` |
 | `healer.poll.duration` | Histogram, seconds | `outcome` |
 | `healer.restart.requests` | Counter | `connector`, `action`, `task_id` (task restarts only), `outcome=accepted\|error\|canceled` |
+| `healer.restart.next_attempt_time` | Gauge, Unix seconds | `connector`, `action`, `task_id` (task restarts only) |
 
 A cycle succeeds when status retrieval and all attempted restarts complete without
 error. Failed connectors and backoff skips do not themselves make a cycle fail.
@@ -461,6 +462,13 @@ count as errors.
 
 Counters retain process-lifetime history for each cluster name. Cycle rates,
 error counts, and missing-data alerts can be used to monitor polling activity.
+
+`healer.restart.next_attempt_time` records the backoff deadline after each poll
+with a valid status snapshot. It is zero when no attempt history exists, after
+observed recovery, or when backoff is disabled; task values are also zero when
+task restarts are disabled. Calculate remaining seconds in your telemetry platform
+as `max(0, next_attempt_time - current Unix time)`. The timestamp indicates restart
+eligibility; actual requests also depend on polling and request execution.
 
 Metrics export periodically and logs export in batches using bounded buffering.
 Startup does not check destination connectivity or credentials. With no endpoint

@@ -26,7 +26,7 @@ func TestPollingTelemetry(t *testing.T) {
 	for _, test := range []struct {
 		name, state, requestOutcome, cycleOutcome, cancelMethod string
 		statusCode, restartCode, cycles                         int
-		disabled, timeout                                       bool
+		disabled, timeout, backoffDisabled, tasksDisabled       bool
 	}{
 		{name: "healthy", state: "RUNNING", cycleOutcome: "success"},
 		{name: "accepted task", state: "task_failed", restartCode: 204, requestOutcome: "accepted", cycleOutcome: "success"},
@@ -39,6 +39,8 @@ func TestPollingTelemetry(t *testing.T) {
 		{name: "status canceled", cancelMethod: http.MethodGet, cycleOutcome: "canceled"},
 		{name: "restart canceled", state: "FAILED", cancelMethod: http.MethodPost, requestOutcome: "canceled", cycleOutcome: "canceled"},
 		{name: "backoff skips requests", state: "FAILED", restartCode: 204, cycles: 2, requestOutcome: "accepted", cycleOutcome: "success"},
+		{name: "disabled backoff", state: "FAILED", restartCode: 204, requestOutcome: "accepted", cycleOutcome: "success", backoffDisabled: true},
+		{name: "disabled task policy", state: "task_failed", cycleOutcome: "success", tasksDisabled: true},
 		{name: "disabled", state: "FAILED", restartCode: 204, disabled: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -107,6 +109,8 @@ func TestPollingTelemetry(t *testing.T) {
 			}
 			configuration := config.DefaultConfiguration()
 			configuration.TelemetryConfig.Enabled = !test.disabled
+			configuration.PollingBehavior.Backoff.Enabled = !test.backoffDisabled
+			configuration.PollingBehavior.RestartFailedTasks = !test.tasksDisabled
 			configuration.PollingBehavior.Interval = config.Duration(50 * time.Millisecond)
 			if test.timeout {
 				configuration.CommunicationConfig.RequestTimeout = config.Duration(10 * time.Millisecond)
@@ -129,6 +133,32 @@ func TestPollingTelemetry(t *testing.T) {
 			}
 			assertMetricAttribute(t, cycleData[0].Attributes, "connect_cluster", "production")
 			assertMetricAttribute(t, cycleData[0].Attributes, "outcome", test.cycleOutcome)
+			if test.state == "RUNNING" || test.state == "FAILED" || test.state == "task_failed" {
+				points := data["healer.restart.next_attempt_time"].Data.(metricdata.Gauge[float64]).DataPoints
+				wantPoints := 1
+				if test.state == "task_failed" {
+					wantPoints++
+				}
+				if len(points) != wantPoints {
+					t.Fatalf("next attempt points = %v, want %d", points, wantPoints)
+				}
+				for _, point := range points {
+					var taskID *int
+					if value, isTask := point.Attributes.Value("task_id"); isTask {
+						id := int(value.AsInt64())
+						taskID = &id
+					}
+					var want float64
+					if !test.backoffDisabled && (!test.tasksDisabled || taskID == nil) {
+						if deadline := poller.backoffFilter.NextAttemptTime("orders", taskID); !deadline.IsZero() {
+							want = float64(deadline.UnixMilli()) / 1000
+						}
+					}
+					if point.Value != want {
+						t.Fatalf("next attempt timestamp = %v, want %v", point, want)
+					}
+				}
+			}
 			durations := data["healer.poll.duration"].Data.(metricdata.Histogram[float64]).DataPoints
 			if len(durations) != 1 || durations[0].Count != uint64(cycles) || durations[0].Sum <= 0 {
 				t.Fatalf("cycle durations = %v", durations)

@@ -148,8 +148,29 @@ func (poller *ConnectClusterPoller) Poll(ctx context.Context, configurationManag
 					outcomeLogger.Info("connector restart request accepted")
 				}
 			}
+			recordNextAttemptTimes(ctx, metrics, &poller.backoffFilter, connectorStatuses, configuration.PollingBehavior.RestartFailedTasks)
 			metrics.RecordCycle(ctx, cycleStarted, cycleOutcome)
 			logger.Debug("poll cycle completed", "outcome", cycleOutcome, "connector_count", len(connectorStatuses), "restart_attempts", restartAttempts, "duration", time.Since(cycleStarted))
+		}
+	}
+}
+
+func recordNextAttemptTimes(ctx context.Context, metrics *telemetry.PollMetrics, filter *backoff.Filter, statuses map[string]status.ConnectorStatus, restartFailedTasks bool) {
+	if metrics == nil {
+		return
+	}
+	for _, connector := range statuses {
+		nextAttempt := time.Time{}
+		if filter.BackoffConfig.Enabled {
+			nextAttempt = filter.NextAttemptTime(connector.Name, nil)
+		}
+		metrics.RecordNextAttemptTime(ctx, actions.RemediationAction{ConnectorName: connector.Name, Kind: actions.RestartConnector}, nextAttempt)
+		for _, task := range connector.Tasks {
+			nextAttempt := time.Time{}
+			if filter.BackoffConfig.Enabled && restartFailedTasks {
+				nextAttempt = filter.NextAttemptTime(connector.Name, &task.ID)
+			}
+			metrics.RecordNextAttemptTime(ctx, actions.RemediationAction{ConnectorName: connector.Name, Kind: actions.RestartTask, TaskID: task.ID}, nextAttempt)
 		}
 	}
 }
