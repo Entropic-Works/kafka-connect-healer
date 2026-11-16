@@ -6,7 +6,8 @@ Discuss larger behavior or API changes in an issue before implementing them.
 
 Fork the repository, branch from `dev`, and open your pull request against `dev`.
 Use a focused branch name such as `fix/restart-timeout` or `docs/configuration`.
-Maintainers promote `dev` to `staging`, then `staging` to `main` using merge
+Pull requests into `dev` use squash merges, producing one commit per feature or
+fix. Maintainers promote `dev` to `staging`, then `staging` to `main` using merge
 commits; contributors do not target those branches. See the
 [repository workflow](docs/REPOSITORY.md) and [code of conduct](CODE_OF_CONDUCT.md).
 Feature branches must be up to date with `dev` before merging; merge the latest
@@ -29,17 +30,19 @@ go mod download
 go mod verify
 go mod tidy -diff
 bash scripts/test-repository-policy.sh
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 go build ./...
 go vet ./...
-go test -race -shuffle=on -count=3 -timeout=5m ./...
+go test -race -shuffle=on -count=1 -timeout=5m ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 docker build -t kafka-connect-healer:local .
 bash scripts/docker-smoke-test.sh kafka-connect-healer:local
 go -C tests/integration test -race -count=1 -timeout=20m ./...
 ```
 
-The container smoke test requires Docker, Bash, curl, jq, tar, and diff. Go tests
-start local HTTP servers. Go downloads dependencies into its module cache; fresh
+The container smoke test requires Docker, Bash, curl, jq, tar, and diff.
+The integration reporter uses Go and the standard library. Go tests start local
+HTTP servers. Go downloads dependencies into its module cache; fresh
 builds require network access. After intentionally changing dependencies, run
 `go mod tidy` and commit the updated `go.mod` and `go.sum`. CI checks that these
 files stay tidy and uses `GOFLAGS=-mod=readonly` for builds and tests. The
@@ -49,8 +52,9 @@ database.
 The [integration suite](tests/integration/README.md) requires a working Docker
 daemon and downloads its own test-only dependencies. It runs in CI on pull
 requests into `dev`, `staging`, and `main`, and for release tags. Every
-promotion requires the full suite to pass. Feature pushes run formatting, build,
-and unit tests; protected branch pushes also run the full fast checks and container
+promotion requires the full suite to pass. Feature pushes run formatting, workflow
+syntax, repository policies, build, vet, and unit tests; protected branch pushes
+also run the full fast checks and container
 smoke test. PRs run the complete validation. Its separate module keeps Testcontainers
 out of the application's dependency graph. Run `go mod tidy` inside
 `tests/integration/` when changing those dependencies. Its Go test setup

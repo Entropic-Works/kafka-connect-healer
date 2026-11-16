@@ -97,12 +97,14 @@ type otlpAttribute struct {
 type otlpPoint struct {
 	Attributes []otlpAttribute
 	AsInt      json.Number
+	AsDouble   float64
 	Count      json.Number
 }
 
 type otlpMetric struct {
 	Name      string
 	Sum       struct{ DataPoints []otlpPoint }
+	Gauge     struct{ DataPoints []otlpPoint }
 	Histogram struct{ DataPoints []otlpPoint }
 }
 
@@ -239,6 +241,32 @@ func (s *suite) exportedLog(t *testing.T, service, message string, attributes ma
 	return false
 }
 
+func (s *suite) nextAttemptTime(t *testing.T, attributes map[string]string) (float64, bool) {
+	t.Helper()
+	var timestamp float64
+	var found bool
+	for _, batch := range s.telemetry(t, "metrics") {
+		for _, resource := range batch.ResourceMetrics {
+			if !attributesMatch(resource.Resource.Attributes, map[string]string{"service.name": "kafka-connect-healer-integration"}) {
+				continue
+			}
+			for _, scope := range resource.ScopeMetrics {
+				for _, metric := range scope.Metrics {
+					if metric.Name != "healer.restart.next_attempt_time" {
+						continue
+					}
+					for _, point := range metric.Gauge.DataPoints {
+						if attributesMatch(point.Attributes, attributes) {
+							timestamp, found = point.AsDouble, true
+						}
+					}
+				}
+			}
+		}
+	}
+	return timestamp, found
+}
+
 func testTelemetry(t *testing.T, s *suite) {
 	s.resetAfter(t)
 	for _, message := range []string{"Application configuration initialized", "Connect clusters initialized"} {
@@ -261,6 +289,11 @@ func testTelemetry(t *testing.T, s *suite) {
 		eventually(t, 20*time.Second, "accepted task metric for "+target.cluster, func() bool {
 			return s.metricValue(t, "healer.restart.requests", attributes) > 0
 		})
+		delete(attributes, "outcome")
+		eventually(t, 10*time.Second, "next task attempt timestamp for "+target.cluster, func() bool {
+			timestamp, found := s.nextAttemptTime(t, attributes)
+			return found && timestamp > float64(time.Now().Add(-time.Minute).Unix()) && timestamp < float64(time.Now().Add(time.Minute).Unix())
+		})
 		for _, name := range []string{"healer.poll.cycles", "healer.poll.duration"} {
 			eventually(t, 10*time.Second, name+" for "+target.cluster, func() bool {
 				return s.metricValue(t, name, map[string]string{"connect_cluster": target.cluster, "outcome": "success"}) > 0
@@ -281,6 +314,12 @@ func testTelemetry(t *testing.T, s *suite) {
 	secondary.marker(t, "fail-task-0", false)
 	primary.wait(t, "RUNNING", "RUNNING")
 	secondary.wait(t, "RUNNING", "RUNNING")
+	for _, target := range []struct{ cluster, task string }{{"test", "1"}, {"telemetry-secondary", "0"}} {
+		eventually(t, 10*time.Second, "recovered task clears next attempt timestamp", func() bool {
+			timestamp, found := s.nextAttemptTime(t, map[string]string{"connect_cluster": target.cluster, "connector": primary.name, "task_id": target.task, "action": "restart_task"})
+			return found && timestamp == 0
+		})
+	}
 
 	primary.marker(t, "fail-connector", true)
 	code, data, _ := s.primary.request("POST", "/connectors/"+primary.name+"/restart?includeTasks=true&onlyFailed=false", nil)
@@ -289,6 +328,10 @@ func testTelemetry(t *testing.T, s *suite) {
 	}
 	eventually(t, 20*time.Second, "accepted connector restart metric", func() bool {
 		return s.metricValue(t, "healer.restart.requests", map[string]string{"connect_cluster": "test", "connector": primary.name, "action": "restart_connector", "outcome": "accepted"}) > 0
+	})
+	eventually(t, 10*time.Second, "next connector attempt timestamp", func() bool {
+		timestamp, found := s.nextAttemptTime(t, map[string]string{"connect_cluster": "test", "connector": primary.name, "action": "restart_connector"})
+		return found && timestamp > float64(time.Now().Add(-time.Minute).Unix()) && timestamp < float64(time.Now().Add(time.Minute).Unix())
 	})
 	primary.marker(t, "fail-connector", false)
 	primary.wait(t, "RUNNING", "RUNNING")
