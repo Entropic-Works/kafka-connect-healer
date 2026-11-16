@@ -159,8 +159,11 @@ jobs:
             exit 1
           }
           {
+            # Keep Markdown backticks literal in the generated release notes.
+            # shellcheck disable=SC2016
             printf 'Source commit: `%s`\n\n' "$GITHUB_SHA"
             printf 'Verified Linux amd64 and arm64 images:\n\n'
+            # shellcheck disable=SC2016
             printf -- '- Multi-platform index: `%s`\n' "$IMAGE_INDEX"
             jq -r '"- Linux " + .architecture + ": `" + .image + "`"' release-images/*/*.json
             printf '\nFull CI and real Kafka/Connect integration passed on this tag. Both published platform images passed container smoke tests on native runners.\n\n'
